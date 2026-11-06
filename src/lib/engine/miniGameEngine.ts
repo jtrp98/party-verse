@@ -5,6 +5,9 @@ import {
   Player,
   ActiveMiniGameInstance,
   MiniGame,
+  IntensityLevel,
+  SessionBoundaries,
+  VIBE_TO_INTENSITY,
 } from '../types/game';
 import { MINI_GAMES_DATABASE } from '../data/miniGamesData';
 import { pickPairOfPlayers, pickGroupOfPlayers, formatPromptWithPlayers } from './playerEngine';
@@ -17,10 +20,13 @@ export interface MiniGamePickerParams {
   currentPlayerIndex: number;
   recentMiniGameIds?: string[];
   database?: MiniGame[];
+  maxAllowedIntensity?: IntensityLevel;
+  boundaries?: SessionBoundaries;
 }
 
 /**
  * Filter and select appropriate mini-game avoiding immediate repetitions,
+ * strictly enforcing maximum intensity ceiling and boundaries,
  * respecting seating positions and weighted progression.
  */
 export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameInstance | null {
@@ -32,32 +38,50 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
     currentPlayerIndex,
     recentMiniGameIds = [],
     database = MINI_GAMES_DATABASE,
+    maxAllowedIntensity,
+    boundaries,
   } = params;
   const playerCount = players.length;
 
   if (playerCount === 0 || database.length === 0) return null;
 
-  // 1. Filter by Level and minimum player count requirement
-  let eligible = database.filter((mg) => {
-    const matchesLevel = mg.level === level;
-    const matchesPlayers = mg.minPlayers <= playerCount;
-    return matchesLevel && matchesPlayers;
+  // 1. Determine strict intensity ceiling
+  const ceilingNum = maxAllowedIntensity ?? (VIBE_TO_INTENSITY[level] || 1);
+
+  // 2. Strict Filter: Intensity must never exceed ceiling, player count must be satisfied, and boundaries respected
+  const boundaryCompliant = database.filter((mg) => {
+    const mgIntensity = VIBE_TO_INTENSITY[mg.level] || 1;
+    if (mgIntensity > ceilingNum) return false;
+    if (mg.minPlayers > playerCount) return false;
+
+    if (boundaries) {
+      if (!boundaries.allowPhysical && (mg.requiresConsent || mg.tags?.includes('physical'))) {
+        return false;
+      }
+      if (!boundaries.allowExplicitTalk && mgIntensity >= 3) {
+        return false;
+      }
+    }
+    return true;
   });
 
-  // Fallback: If no exact level match, allow fallback to CHILL or lower
-  if (eligible.length === 0) {
-    eligible = database.filter((mg) => mg.minPlayers <= playerCount);
-  }
-
-  if (eligible.length === 0) {
+  if (boundaryCompliant.length === 0) {
     return null;
   }
 
-  // 2. Filter out recently played games to avoid immediate repetition
+  // 3. Prefer exact level match if within ceiling
+  let eligible = boundaryCompliant.filter((mg) => mg.level === level);
+
+  // Safe Fallback: If no exact level match, pick from boundaryCompliant (which is guaranteed <= ceilingNum)
+  if (eligible.length === 0) {
+    eligible = boundaryCompliant;
+  }
+
+  // 4. Filter out recently played games to avoid immediate repetition
   const notRecent = eligible.filter((mg) => !recentMiniGameIds.includes(mg.id));
   const pool = notRecent.length > 0 ? notRecent : eligible;
 
-  // 3. Weighted scoring based on phase and difficulty
+  // 5. Weighted scoring based on phase and difficulty
   const scored = pool.map((mg) => {
     let weight = 1;
     if (mg.phase === phase) weight += 3;
@@ -76,6 +100,14 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
       break;
     }
     randomVal -= item.weight;
+  }
+
+  // Sober alternative check
+  if (boundaries && !boundaries.allowAlcohol && chosenGame.penaltyText.includes('ดื่ม')) {
+    chosenGame = {
+      ...chosenGame,
+      penaltyText: 'ทำท่าตลก 5 วินาที หรือสารภาพความลับ 1 ข้อ (ปลอดภัยไร้แอลกอฮอล์)',
+    };
   }
 
   // 4. Resolve Participants respecting relative seating directions

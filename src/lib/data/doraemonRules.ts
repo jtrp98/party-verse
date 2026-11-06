@@ -8,6 +8,9 @@ export interface CardRuleDefinition {
   badge: string;
   triggersMiniGame?: boolean;
   isSpecialTracker?: 'J' | 'Q' | 'K' | 'BATHROOM' | 'BUDDY';
+  alternativeAction?: string;
+  isPhysical?: boolean;
+  requiresConsent?: boolean;
 }
 
 export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
@@ -17,6 +20,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     shortDesc: 'คนที่จั่วได้ต้องดื่ม 1 ช็อตคนเดียว',
     fullDesc: 'คนจั่วต้องดื่มเพียวๆ คนเดียว 1 ดื่ม ไม่มีข้อแม้และห้ามเกี่ยง!',
     badge: '🍺 คนเดียว',
+    alternativeAction: 'ทำท่ายกแก้วทิพย์ หรือทำหน้าตลก 5 วินาทีให้เพื่อนหัวเราะ',
   },
   '2': {
     rank: '2',
@@ -24,6 +28,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     shortDesc: 'สั่งเพื่อนดื่ม 2 ช็อต (คนเดียวหรือแบ่ง 2 คน)',
     fullDesc: 'คนจั่วมีอำนาจสั่งให้เพื่อนในวงดื่มรวม 2 ช็อต สามารถแจกให้คนเดียว 2 ดื่ม หรือแจกให้ 2 คน คนละ 1 ดื่มก็ได้',
     badge: '👉 แจก 2 ดื่ม',
+    alternativeAction: 'สั่งเพื่อน 2 คนทำท่าเต้นคนละ 1 ท่า หรือเล่าเรื่องตลก 1 เรื่อง',
   },
   '3': {
     rank: '3',
@@ -39,6 +44,8 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'เมื่อเปิดไพ่นี้ ทุกคนในวงต้องรีบเอามือแตะหน้าผากตัวเอง (หรือแตะโต๊ะ) ทันที ใครทำช้าที่สุดในวงต้องดื่ม 1 ดื่ม!',
     badge: '⚡ ความไว',
     triggersMiniGame: true,
+    alternativeAction: 'ใครแตะช้าสุด ต้องตอบคำถามความจริงจากเพื่อน 1 ข้อ',
+    isPhysical: false,
   },
   '5': {
     rank: '5',
@@ -47,6 +54,8 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'คนจั่วและทุกคนในวงต้องรีบเอานิ้วแตะที่ปลายจมูกของตัวเอง ใครทำช้าที่สุดในวงเป็นผู้แพ้และต้องดื่ม 1 ช็อต',
     badge: '👃 แตะจมูก',
     triggersMiniGame: true,
+    alternativeAction: 'ใครทำช้าสุด ต้องทำเสียงสัตว์ร้อง 1 ชนิด',
+    isPhysical: false,
   },
   '6': {
     rank: '6',
@@ -55,6 +64,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'คนจั่วเลือกเพื่อนในวง 1 คนมาเป็นบัดดี้คู่ใจ ตลอดเกมหลังจากนี้ หากคนใดคนหนึ่งต้องดื่ม อีกคนจะต้องดื่มตามด้วยทุกครั้ง!',
     badge: '🤝 บัดดี้',
     isSpecialTracker: 'BUDDY',
+    alternativeAction: 'เลือกบัดดี้ 1 คน ตลอดเกมถ้าคนนึงโดนทำโทษ อีกคนต้องช่วยทำโทษด้วย (เน้นเสียงหัวเราะ)',
   },
   '7': {
     rank: '7',
@@ -63,6 +73,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'เริ่มจากคนจั่วนับ "1" คนถัดไปนับ "2" ต่อไปเรื่อยๆ หากถึงเลขที่มีเลข 7 (เช่น 7, 17, 27) หรือเลขที่ 7 หารลงตัว (เช่น 14, 21, 28) ให้ตบมือแทนการพูด ใครเผลอพูดหรือนับผิดต้องดื่ม!',
     badge: '🔢 นับ 7',
     triggersMiniGame: true,
+    alternativeAction: 'ใครนับผิด ต้องกระโดดตบ 5 ครั้ง หรือทำท่าไหว้ขอโทษทุกคน',
   },
   '8': {
     rank: '8',
@@ -78,6 +89,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     shortDesc: 'คนที่นั่งทางซ้ายมือของคนจั่วต้องดื่ม 1 ช็อต',
     fullDesc: 'หันไปมองคนทางซ้ายมือของคุณ... คนนั้นต้องยกแก้วขึ้นดื่ม 1 ดื่มทันที!',
     badge: '👈 คนซ้ายดื่ม',
+    alternativeAction: 'คนทางซ้ายต้องชมคนจั่ว 1 ประโยคหวานๆ หรือส่งมินิฮาร์ท',
   },
   '10': {
     rank: '10',
@@ -86,6 +98,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'คนจั่วประกาศหัวข้อหมวดหมู่ (เช่น ยี่ห้อรถ, ชื่อดารา, ท่าออกกำลังกาย) จากนั้นทุกคนในวงตอบวนทีละคน คนละไม่เกิน 5 วินาที ใครตอบซ้ำ ตอบไม่ได้ หรือยอมแพ้ ต้องดื่ม!',
     badge: '🧠 หมวดหมู่',
     triggersMiniGame: true,
+    alternativeAction: 'ใครตอบไม่ได้ ต้องเป็นคนเสิร์ฟน้ำหรือขนมให้เพื่อน 1 รอบ',
   },
   J: {
     rank: 'J',
@@ -94,6 +107,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'คนจั่วได้รับพลังแห่ง J! ตลอดเวลาที่ถือไพ่นี้ หากใครในวงเผลอพูดคุย ตอบคำถาม หรือสบตาคุยด้วย คนนั้นต้องดื่ม 1 ช็อตทันที! (คนถือ J พยายามหลอกล่อให้เพื่อนพูดด้วย)',
     badge: '👑 คนถือ J',
     isSpecialTracker: 'J',
+    alternativeAction: 'ใครเผลอคุยด้วย ต้องทำท่าคำนับเจ้าชาย/เจ้าหญิง 1 ครั้ง',
   },
   Q: {
     rank: 'Q',
@@ -102,6 +116,7 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'คนจั่วกลายเป็น Question Master! ตลอดทั้งเกมหากคุณถามคำถามใครแล้วเขาเผลอตอบ คนนั้นต้องดื่ม 1 ช็อต! ทางรอดเดียวคือต้องตอบกลับด้วยคำถามเท่านั้น',
     badge: '❓ Question Master',
     isSpecialTracker: 'Q',
+    alternativeAction: 'ใครเผลอตอบคำถาม ต้องพูดชมคนถาม 1 ประโยค',
   },
   K: {
     rank: 'K',
@@ -110,5 +125,6 @@ export const DEFAULT_DORAEMON_RULES: Record<Rank, CardRuleDefinition> = {
     fullDesc: 'ไพ่กษัตริย์! ผู้ที่จั่วได้ K ใบที่ 1, 2, 3 สามารถตั้งกฎพิเศษประจำวงได้ 1 ข้อ (เช่น ห้ามเรียกชื่อจริง, ให้พูดลงท้ายด้วยจ๊ะ) ทุกคนต้องทำตามจนจบเกม ส่วนผู้ที่จั่วได้ K ใบที่ 4 ถือเป็น King องค์สุดท้าย ต้องดื่มหมดแก้วเพื่อปิดเกม!',
     badge: '🏰 เจ้าของผับ',
     isSpecialTracker: 'K',
+    alternativeAction: 'ใบที่ 4: ร้องเพลงท่อนฮุกประจำกลุ่มเสียงดังฟังชัด หรือเต้นเพลงปิดวง (ไม่ต้องดื่มหมดแก้ว)',
   },
 };

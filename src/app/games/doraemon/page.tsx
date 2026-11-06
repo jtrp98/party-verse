@@ -2,7 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { Play, RotateCcw, Layers, ChevronRight, Crown } from 'lucide-react';
+import {
+  Play,
+  RotateCcw,
+  Layers,
+  ChevronRight,
+  Crown,
+  Info,
+} from 'lucide-react';
 import {
   Player,
   GameVibeLevel,
@@ -10,10 +17,16 @@ import {
   PlayingCard,
   DoraemonSession,
   ActiveMiniGameInstance,
+  IntensityLevel,
+  SessionBoundaries,
+  INTENSITY_TO_VIBE,
+  VIBE_TO_INTENSITY,
 } from '@/lib/types/game';
-import { TopBar } from '@/components/layout/TopBar';
-import { PassPhoneBanner } from '@/components/layout/PassPhoneBanner';
-import { PartyProgressBar } from '@/components/game/PartyProgressBar';
+import { GameHeader } from '@/components/design-system/GameHeader';
+import { PlayerTurnBanner } from '@/components/design-system/PlayerTurnBanner';
+import { PrimaryActionButton } from '@/components/design-system/PrimaryActionButton';
+import { IntensityCeilingControl } from '@/components/design-system/IntensityCeilingControl';
+import { BoundarySelector } from '@/components/design-system/BoundarySelector';
 import { Card3D } from '@/components/game/Card3D';
 import { VibeSelector } from '@/components/game/VibeSelector';
 import { DifficultySelector } from '@/components/game/DifficultySelector';
@@ -48,6 +61,11 @@ export default function DoraemonGamePage() {
   const [setupPlayers, setSetupPlayers] = useState<Player[]>([]);
   const [setupLevel, setSetupLevel] = useState<GameVibeLevel>('CHILL');
   const [setupDifficulty, setSetupDifficulty] = useState<GameDifficulty>('EASY');
+  const [setupBoundaries, setSetupBoundaries] = useState<SessionBoundaries>({
+    allowPhysical: true,
+    allowAlcohol: true,
+    allowExplicitTalk: true,
+  });
 
   // Load existing session or default setup on mount
   useEffect(() => {
@@ -63,7 +81,6 @@ export default function DoraemonGamePage() {
           setIsFlipped(true);
         }
       } else {
-        // Initialize with saved or default players
         const savedNames = loadSavedPlayerNames();
         setSetupPlayers(savedNames.map((name, i) => createNewPlayer(name, i)));
       }
@@ -81,7 +98,9 @@ export default function DoraemonGamePage() {
   // Start Game Handler
   const handleStartGame = () => {
     sounds.playFanfare();
-    const freshDeck = shuffleDeck(generate52CardDeck());
+    const freshDeck = shuffleDeck(generate52CardDeck(undefined, setupBoundaries));
+    const ceiling = VIBE_TO_INTENSITY[setupLevel] || 1;
+
     const newSession: DoraemonSession = {
       gameId: 'doraemon',
       sessionId: `doraemon_${Date.now()}`,
@@ -91,6 +110,9 @@ export default function DoraemonGamePage() {
       currentPlayerIndex: 0,
       level: setupLevel,
       difficulty: setupDifficulty,
+      maxAllowedIntensity: ceiling,
+      currentAllowedIntensity: ceiling,
+      boundaries: setupBoundaries,
       currentPhase: 'WARM_UP',
       status: 'PLAYING',
       deck: freshDeck,
@@ -106,7 +128,7 @@ export default function DoraemonGamePage() {
           playerId: setupPlayers[0].id,
           playerName: setupPlayers[0].name,
           type: 'RULE_TRIGGER',
-          summary: `เริ่มเกมโดราเอมอน Vibe: ${setupLevel}`,
+          summary: `เริ่มเกมโดราเอมอน เพดานความเดือด: Level ${ceiling} (${setupLevel})`,
         },
       ],
     };
@@ -127,13 +149,11 @@ export default function DoraemonGamePage() {
     const { card, updatedDeck } = drawNextCard(session.deck, currentPlayer.id);
 
     if (!card) {
-      // Deck empty -> Finished
       sounds.playFanfare();
       setSession({ ...session, status: 'FINISHED' });
       return;
     }
 
-    // Flip card with sound
     setTimeout(() => {
       if (card.rank === 'K') {
         sounds.playImpactSlam();
@@ -145,11 +165,9 @@ export default function DoraemonGamePage() {
 
     setCurrentDrawnCard(card);
 
-    // Calculate progression phase
     const newDrawnList = [...session.drawnCards, card];
     const nextPhase = calculateDoraemonPhase(newDrawnList.length, 52);
 
-    // Update Player & Active Rules Tracking (J / Q / K / Toilet)
     let updatedPlayers = [...session.players];
     const updatedActiveRules = { ...session.activeRules };
 
@@ -165,7 +183,6 @@ export default function DoraemonGamePage() {
       updatedPlayers = updatePlayerStat(updatedPlayers, currentPlayer.id, 'kCards', 1);
 
       if (nextKings === 4) {
-        // 4th King Finale celebration!
         confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
         sounds.playFanfare();
       }
@@ -195,7 +212,7 @@ export default function DoraemonGamePage() {
 
     setSession(nextSession);
 
-    // Check if triggers mini-game
+    // Trigger mini-game if card triggers it
     if (card.triggersMiniGame) {
       setTimeout(() => {
         const recentMiniGameIds = session.history
@@ -209,6 +226,8 @@ export default function DoraemonGamePage() {
           players: updatedPlayers,
           currentPlayerIndex: session.currentPlayerIndex,
           recentMiniGameIds,
+          maxAllowedIntensity: session.maxAllowedIntensity || (VIBE_TO_INTENSITY[session.level] || 1),
+          boundaries: session.boundaries,
         });
         if (miniGame) {
           setActiveMiniGame(miniGame);
@@ -230,7 +249,33 @@ export default function DoraemonGamePage() {
     setCurrentDrawnCard(null);
   };
 
-  // End Game / Restart
+  // Lower intensity ceiling during play
+  const handleLowerIntensity = (newCeiling: IntensityLevel) => {
+    if (!session) return;
+    sounds.playFanfare();
+    const newVibe = INTENSITY_TO_VIBE[newCeiling];
+    const updated: DoraemonSession = {
+      ...session,
+      level: newVibe,
+      maxAllowedIntensity: newCeiling,
+      currentAllowedIntensity: newCeiling,
+      history: [
+        ...session.history,
+        {
+          id: `log_lower_${Date.now()}`,
+          timestamp: Date.now(),
+          playerId: session.players[session.currentPlayerIndex]?.id || 'system',
+          playerName: session.players[session.currentPlayerIndex]?.name || 'ผู้เล่น',
+          type: 'RULE_TRIGGER',
+          summary: `ลดระดับความเดือดลงเหลือ Level ${newCeiling} (${newVibe})`,
+        },
+      ],
+    };
+    setSession(updated);
+    saveActiveSession(updated);
+  };
+
+  // Restart Handler
   const handleRestart = () => {
     if (confirm('คุณต้องการเริ่มเกมใหม่ใช่หรือไม่?')) {
       sounds.playClick();
@@ -266,67 +311,95 @@ export default function DoraemonGamePage() {
 
   const currentPlayer = session ? session.players[session.currentPlayerIndex] : null;
   const stats = session ? getDeckStats(session.deck) : null;
-
   const questionMaster = session?.players.find((p) => p.id === session.activeRules.questionMasterId);
   const prince = session?.players.find((p) => p.id === session.activeRules.princeId);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none pb-8">
-      <TopBar
-        showBack={true}
-        backHref="/"
-        title="DORAEMON"
-        activePlayerName={currentPlayer ? currentPlayer.name : undefined}
-        onOverviewClick={session ? () => setIsOverviewOpen(true) : undefined}
-      />
+    <div className="min-h-screen bg-tabletop text-slate-100 flex flex-col font-sans select-none pb-12">
+      <GameHeader title="DORAEMON CARD" showBack={true} backHref="/" />
 
       {/* ===================== GAME SETUP SCREEN ===================== */}
       {isSetupOpen && (
-        <main className="flex-1 w-full max-w-md mx-auto p-4 space-y-5">
+        <main className="flex-1 w-full max-w-xl mx-auto px-4 sm:px-6 py-6 space-y-6">
           <div className="text-center space-y-1.5 pt-2">
-            <span className="text-3xl">🍻</span>
-            <h1 className="text-xl font-black tracking-widest text-white uppercase">
+            <span className="text-4xl">🃏</span>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-widest text-white uppercase">
               DORAEMON CARD GAME
             </h1>
-            <p className="text-xs text-zinc-400">
-              ไพ่โดราเอมอน 52 ใบแท้ กติกาไทยแท้ เล่นรอบวงเครื่องเดียว
+            <p className="text-sm text-zinc-400">
+              ไพ่ 52 ใบแท้ กติกาไทยแท้ เล่นรอบวงเครื่องเดียว พร้อมเพดานความเดือด
             </p>
           </div>
 
-          <PlayerSetupModal players={setupPlayers} onPlayersChange={setSetupPlayers} />
+          <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-zinc-700 space-y-6 shadow-tactile-rest">
+            <PlayerSetupModal players={setupPlayers} onPlayersChange={setSetupPlayers} />
 
-          <VibeSelector selectedLevel={setupLevel} onSelectLevel={setSetupLevel} />
+            <div className="space-y-2">
+              <VibeSelector selectedLevel={setupLevel} onSelectLevel={setSetupLevel} />
+              <p className="text-xs text-amber-400/90 font-bold px-1">
+                * ระดับที่เลือกคือเพดานสูงสุด เกมจะไม่สุ่มมินิเกมเกินระดับนี้
+              </p>
+            </div>
 
-          <DifficultySelector
-            selectedDifficulty={setupDifficulty}
-            onSelectDifficulty={setSetupDifficulty}
-          />
+            <DifficultySelector
+              selectedDifficulty={setupDifficulty}
+              onSelectDifficulty={setSetupDifficulty}
+            />
 
-          <button
-            type="button"
-            onClick={handleStartGame}
-            disabled={setupPlayers.length < 2}
-            className="w-full py-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-sm flex items-center justify-center gap-2 active:scale-98 transition-all shadow-xl shadow-amber-950/40 disabled:opacity-40"
-          >
-            <Play className="w-4 h-4 fill-zinc-950" />
-            <span>เริ่มเล่นเกมโดราเอมอน</span>
-          </button>
+            <BoundarySelector
+              boundaries={setupBoundaries}
+              onChange={setSetupBoundaries}
+            />
+
+            <PrimaryActionButton
+              variant="blue"
+              icon={<Play className="w-5 h-5 fill-current" />}
+              disabled={setupPlayers.length < 2}
+              onClick={handleStartGame}
+            >
+              เริ่มเล่นเกมโดราเอมอน
+            </PrimaryActionButton>
+          </div>
         </main>
       )}
 
       {/* ===================== ACTIVE GAMEPLAY SCREEN ===================== */}
       {!isSetupOpen && session && (
-        <main className="flex-1 w-full max-w-md mx-auto p-4 flex flex-col justify-between gap-4">
+        <main className="flex-1 w-full max-w-xl mx-auto px-4 sm:px-6 py-4 flex flex-col justify-between gap-5">
           {/* Top Progress & Turn Banner */}
           <div className="space-y-3">
-            <PartyProgressBar
-              currentPhase={session.currentPhase}
-              progressPercent={stats?.percentCompleted || 0}
-              label={`จั่วแล้ว ${stats?.drawnCount}/52 ใบ`}
+            <div className="flex items-center justify-between text-xs sm:text-sm font-bold">
+              <span className="px-3 py-1 rounded-full bg-zinc-900 border border-zinc-700 text-sky-400">
+                {session.currentPhase}
+              </span>
+
+              <span className="font-mono text-zinc-300 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">
+                จั่วแล้ว {stats?.drawnCount} / 52 ใบ
+              </span>
+            </div>
+
+            {/* Deck Progress Bar */}
+            <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+              <div
+                className="h-full bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500 rounded-full transition-all duration-500"
+                style={{ width: `${stats?.percentCompleted || 0}%` }}
+              />
+            </div>
+
+            {/* Ceiling Lowering Control */}
+            <IntensityCeilingControl
+              currentCeiling={session.maxAllowedIntensity || (VIBE_TO_INTENSITY[session.level] || 1)}
+              onLowerCeiling={handleLowerIntensity}
             />
 
+            {/* Current Player Banner */}
             {currentPlayer && (
-              <PassPhoneBanner player={currentPlayer} turnNumber={session.drawnCards.length + 1} />
+              <PlayerTurnBanner
+                playerName={currentPlayer.name}
+                avatarColor={currentPlayer.avatarColor}
+                turnIndex={session.currentPlayerIndex}
+                roundInfo={`ใบที่ ${session.drawnCards.length + 1} / 52`}
+              />
             )}
           </div>
 
@@ -339,76 +412,76 @@ export default function DoraemonGamePage() {
             />
 
             {!isFlipped ? (
-              <p className="text-center text-xs text-slate-400 mt-3 animate-pulse">
+              <p className="text-center text-xs sm:text-sm text-zinc-400 mt-3 animate-pulse font-bold">
                 👆 แตะที่ไพ่ หรือกดปุ่มด้านล่างเพื่อจั่ว
               </p>
             ) : (
-              <p className="text-center text-xs text-cyan-400 font-bold mt-3">
-                ✨ อ่านกติกา ทำตามคำสั่ง แล้วส่งต่อให้เพื่อนคนถัดไป
+              <p className="text-center text-xs sm:text-sm text-sky-300 font-bold mt-3">
+                ✨ ทำตามกติกา แล้วส่งมือถือให้คนถัดไป
               </p>
             )}
           </div>
 
           {/* Live J / Q / K Status Bar */}
-          <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-2.5 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5 font-bold">
-              <Crown className="w-4 h-4 text-amber-400" />
-              <span className="text-slate-300">King: {session.activeRules.kingsDrawn}/4</span>
+          <div className="bg-zinc-900/90 border-2 border-zinc-800 rounded-2xl p-3 flex items-center justify-between text-xs sm:text-sm shadow-sm">
+            <div className="flex items-center gap-2 font-black text-amber-400">
+              <Crown className="w-5 h-5" />
+              <span>King: {session.activeRules.kingsDrawn}/4</span>
             </div>
 
-            <div className="flex items-center gap-2 font-mono text-[11px]">
+            <div className="flex items-center gap-2 font-mono text-xs">
               {questionMaster && (
-                <span className="px-2 py-0.5 rounded-lg bg-purple-950/60 text-purple-300 border border-purple-500/40 font-bold">
+                <span className="px-2.5 py-1 rounded-xl bg-purple-950/80 text-purple-300 border border-purple-500/40 font-bold">
                   Q: {questionMaster.name}
                 </span>
               )}
               {prince && (
-                <span className="px-2 py-0.5 rounded-lg bg-blue-950/60 text-blue-300 border border-blue-500/40 font-bold">
+                <span className="px-2.5 py-1 rounded-xl bg-blue-950/80 text-blue-300 border border-blue-500/40 font-bold">
                   J: {prince.name}
                 </span>
               )}
               {!questionMaster && !prince && (
-                <span className="text-slate-500 italic">ยังไม่มีใครถือ J / Q</span>
+                <span className="text-zinc-500 italic">ยังไม่มีใครถือ J / Q</span>
               )}
             </div>
           </div>
 
-          {/* Action Buttons: Draw vs Next Turn */}
-          <div className="space-y-2">
+          {/* Primary Action Buttons: Draw vs Next Turn */}
+          <div className="space-y-3 pt-1">
             {!isFlipped ? (
-              <button
-                type="button"
+              <PrimaryActionButton
+                variant="blue"
+                icon={<Layers className="w-5 h-5" />}
                 onClick={handleDrawCard}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500 text-slate-950 font-black text-base flex items-center justify-center gap-2 active:scale-98 transition-all shadow-xl shadow-orange-950/50"
               >
-                <Layers className="w-5 h-5" />
-                <span>จั่วไพ่ (DRAW CARD)</span>
-              </button>
+                แตะเพื่อจั่วไพ่
+              </PrimaryActionButton>
             ) : (
-              <button
-                type="button"
+              <PrimaryActionButton
+                variant="blue"
+                icon={<ChevronRight className="w-5 h-5" />}
                 onClick={handleNextTurn}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-600 text-slate-950 font-black text-base flex items-center justify-center gap-2 active:scale-98 transition-all shadow-xl shadow-cyan-950/50"
               >
-                <span>ส่งต่อให้เพื่อนคนถัดไป</span>
-                <ChevronRight className="w-5 h-5" />
-              </button>
+                ส่งมือถือให้เพื่อน
+              </PrimaryActionButton>
             )}
 
-            <div className="flex items-center justify-between px-2 pt-1 text-xs text-slate-500">
+            <div className="flex items-center justify-between px-2 pt-1 text-xs sm:text-sm">
               <button
                 type="button"
                 onClick={() => setIsOverviewOpen(true)}
-                className="text-purple-400 font-bold hover:underline"
+                className="text-amber-400 font-bold hover:underline flex items-center gap-1 min-h-[44px]"
               >
-                ดูสถานะภาพรวม (Overview)
+                <Info className="w-4 h-4" />
+                <span>ดูกติกาภาพรวม</span>
               </button>
+
               <button
                 type="button"
                 onClick={handleRestart}
-                className="text-slate-500 hover:text-rose-400 flex items-center gap-1"
+                className="text-zinc-400 hover:text-rose-400 flex items-center gap-1.5 min-h-[44px]"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-4 h-4" />
                 <span>เริ่มเกมใหม่</span>
               </button>
             </div>
@@ -416,7 +489,7 @@ export default function DoraemonGamePage() {
         </main>
       )}
 
-      {/* ===================== OVERVIEW MODAL ===================== */}
+      {/* Overview Modal */}
       {session && (
         <GameOverviewModal
           isOpen={isOverviewOpen}
@@ -440,7 +513,7 @@ export default function DoraemonGamePage() {
         />
       )}
 
-      {/* ===================== MINI GAME MODAL ===================== */}
+      {/* Mini Game Modal */}
       {session && (
         <MiniGameModal
           isOpen={activeMiniGame !== null}

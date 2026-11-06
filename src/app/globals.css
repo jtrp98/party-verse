@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --background: #020617;
+  --background: #090d14;
   --foreground: #f8fafc;
+  --surface-card: #141a24;
+  --surface-elevated: #1e2634;
+  --accent-gold: #fbbf24;
+  --accent-party: #f97316;
+  --accent-couple: #fb7185;
+  --accent-doraemon: #38bdf8;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-tactile: rgba(255, 255, 255, 0.16);
 }
 
 @theme inline {
@@ -12,15 +20,140 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Base Body Styles */
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-sans), 'Noto Sans Thai', 'Sarabun', 'Prompt', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  line-height: 1.5;
 }
 
-/* 3D Transform Utilities for Playing Cards */
+/* Tabletop Texture Background */
+.bg-tabletop {
+  background-color: #090d14;
+  background-image: 
+    radial-gradient(ellipse at 50% 0%, rgba(245, 158, 11, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(2, 132, 199, 0.03) 0%, transparent 60%),
+    url('/assets/tabletop-bg.jpg');
+  background-size: cover, cover, 600px 600px;
+  background-repeat: no-repeat, no-repeat, repeat;
+  background-blend-mode: normal, normal, overlay;
+}
+
+/* 3D Transform Utilities for Physical Cards */
 .perspective-1000 {
   perspective: 1000px;
+}
+
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Tactile Realistic Card Shadows */
+.shadow-tactile-rest {
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 8px 24px -4px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.shadow-tactile-lift {
+  box-shadow: 
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 20px 44px -8px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.shadow-gold-glow {
+  box-shadow: 
+    0 8px 24px -4px rgba(245, 158, 11, 0.25),
+    0 2px 8px -1px rgba(245, 158, 11, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.shadow-rose-glow {
+  box-shadow: 
+    0 8px 24px -4px rgba(244, 63, 94, 0.25),
+    0 2px 8px -1px rgba(244, 63, 94, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.shadow-blue-glow {
+  box-shadow: 
+    0 8px 24px -4px rgba(2, 132, 199, 0.25),
+    0 2px 8px -1px rgba(2, 132, 199, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* Physical Card Bevel Edge */
+.card-beveled-edge {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  outline: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+/* Paper Grain Texture Overlay */
+.paper-grain {
+  position: relative;
+}
+.paper-grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 0);
+  background-size: 4px 4px;
+  pointer-events: none;
+}
+
+/* Accessibility: High-Contrast Mode */
+.high-contrast {
+  --background: #000000;
+  --foreground: #ffffff;
+  --surface-card: #0a0a0a;
+  --border-subtle: #ffffff;
+  --border-tactile: #ffffff;
+}
+
+.high-contrast button,
+.high-contrast a,
+.high-contrast .card-beveled-edge {
+  border-color: #ffffff !important;
+  outline-color: #ffffff !important;
+}
+
+/* Accessibility: Larger Text Mode */
+.large-text-mode {
+  font-size: 1.15rem;
+}
+
+.large-text-mode h1 {
+  font-size: 2.2rem !important;
+}
+.large-text-mode h2 {
+  font-size: 1.8rem !important;
+}
+.large-text-mode h3 {
+  font-size: 1.5rem !important;
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

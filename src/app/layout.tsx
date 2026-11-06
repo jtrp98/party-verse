@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "🍻 PARTYVERSE — Private Drinking & Party Games (SOLO)",
-  description: "One Device, Endless Party Games. เว็บไซต์รวมเกมวงเหล้าและเกมปาร์ตี้ เล่นรอบวงผ่านมือถือเครื่องเดียว ฟรี 100%",
+  title: "PARTYVERSE — Premium Tactile Party Game",
+  description: "A real party game in your hands, enhanced by digital magic. เล่นรอบวงผ่านมือถือเครื่องเดียว",
   manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
@@ -24,9 +24,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: "#020617",
+  themeColor: "#0b0f17",
 };
 
 export default function RootLayout({

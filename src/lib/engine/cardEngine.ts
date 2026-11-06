@@ -1,4 +1,4 @@
-import { PlayingCard, Suit, Rank } from '../types/game';
+import { PlayingCard, Suit, Rank, SessionBoundaries } from '../types/game';
 import { DEFAULT_DORAEMON_RULES, CardRuleDefinition } from '../data/doraemonRules';
 
 const SUITS: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
@@ -11,21 +11,48 @@ export const SUIT_SYMBOLS: Record<Suit, { symbol: string; nameThai: string; colo
   clubs: { symbol: '♣', nameThai: 'ดอกจิก', color: 'text-cyan-400' },
 };
 
-export function generate52CardDeck(customRules: Record<Rank, CardRuleDefinition> = DEFAULT_DORAEMON_RULES): PlayingCard[] {
+export function generate52CardDeck(
+  customRules: Record<Rank, CardRuleDefinition> = DEFAULT_DORAEMON_RULES,
+  boundaries?: SessionBoundaries
+): PlayingCard[] {
   const deck: PlayingCard[] = [];
 
   for (const suit of SUITS) {
     for (const rank of RANKS) {
       const rule = customRules[rank] || DEFAULT_DORAEMON_RULES[rank];
+
+      let title = rule.title;
+      let desc = rule.shortDesc;
+      let details = rule.fullDesc;
+
+      // Adapt if boundaries disable alcohol
+      if (boundaries && !boundaries.allowAlcohol && rule.alternativeAction) {
+        if (rank === 'A') {
+          title = 'ภารกิจคนเดียว (ไร้แอลกอฮอล์)';
+          desc = rule.alternativeAction;
+        } else if (rank === '2') {
+          title = 'สั่งเพื่อน 2 คน';
+          desc = rule.alternativeAction;
+        } else if (rank === '9') {
+          title = 'คนข้างซ้ายทำภารกิจ';
+          desc = rule.alternativeAction;
+        } else if (rank === 'K') {
+          details = 'ใบที่ 1-3 สั่งกฎใหม่ 1 ข้อ / ใบที่ 4: ' + rule.alternativeAction;
+        }
+      }
+
       deck.push({
         id: `${suit}_${rank}`,
         suit,
         rank,
         isDrawn: false,
-        ruleTitle: rule.title,
-        ruleDescription: rule.shortDesc,
-        ruleDetails: rule.fullDesc,
+        ruleTitle: title,
+        ruleDescription: desc,
+        ruleDetails: details,
         triggersMiniGame: rule.triggersMiniGame,
+        alternativeAction: rule.alternativeAction,
+        isPhysical: rule.isPhysical ?? false,
+        requiresConsent: rule.requiresConsent ?? false,
       });
     }
   }

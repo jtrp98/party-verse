@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "bun run tests/redesign-verification.test.ts && bun run test-engines.ts && bun run tests/database-integrity.test.ts && bun run tests/selection-engine.test.ts"
+    "test": "bun run tests/doraemon-ceiling.test.ts && bun run tests/redesign-verification.test.ts && bun run test-engines.ts && bun run tests/database-integrity.test.ts && bun run tests/selection-engine.test.ts"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

@@ -2,21 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import Link from 'next/link';
 import {
   Heart,
-  Sparkles,
-  RotateCcw,
-  Volume2,
-  VolumeX,
-  ArrowLeft,
   Check,
   X,
-  HeartHandshake,
-  TrendingDown,
-  Timer as TimerIcon,
-  Flame,
   Zap,
+  Smartphone,
 } from 'lucide-react';
 import {
   CoupleSessionData,
@@ -24,6 +15,7 @@ import {
   IntensityLevel,
   UnifiedChallenge,
   SessionBoundaries,
+  INTENSITY_TO_VIBE,
 } from '@/lib/types/redesign';
 import { COUPLE_CHALLENGES } from '@/lib/data/coupleChallenges';
 import {
@@ -31,17 +23,27 @@ import {
   calculateAllowedIntensity,
   GAME_PHASES,
 } from '@/lib/engine/pacingEngine';
-import {
-  selectNextUnifiedChallenge,
-} from '@/lib/engine/coreSelectionEngine';
+import { selectNextUnifiedChallenge } from '@/lib/engine/coreSelectionEngine';
 import {
   saveActiveSession,
   loadActiveSession,
   clearActiveSession,
 } from '@/lib/engine/sessionManager';
 import { sounds } from '@/lib/sound/webAudio';
+import { GameHeader } from '@/components/design-system/GameHeader';
+import { PhysicalGameCard } from '@/components/design-system/PhysicalGameCard';
+import { PrimaryActionButton } from '@/components/design-system/PrimaryActionButton';
+import { SecondaryActionButton } from '@/components/design-system/SecondaryActionButton';
+import { BoundarySelector } from '@/components/design-system/BoundarySelector';
+import { IntensityCeilingControl } from '@/components/design-system/IntensityCeilingControl';
+import { SyncCountdown } from '@/components/design-system/SyncCountdown';
+import { ConsentDialog } from '@/components/design-system/ConsentDialog';
 
 export default function CoupleGamePage() {
+  // Setup Wizard Step (1: Names & Stage, 2: Intensity, 3: Boundaries, 4: Start)
+  const [setupStep, setSetupStep] = useState<1 | 2 | 3 | 4>(1);
+  const [isSetup, setIsSetup] = useState(true);
+
   // Setup State
   const [partnerA, setPartnerA] = useState('ที่รัก');
   const [partnerB, setPartnerB] = useState('ตัวเอง');
@@ -53,24 +55,20 @@ export default function CoupleGamePage() {
     allowAlcohol: true,
     allowExplicitTalk: true,
   });
-  const [isSetup, setIsSetup] = useState(true);
 
-  // In-Game State
+  // Gameplay State
   const [session, setSession] = useState<CoupleSessionData | null>(null);
   const [currentChallenge, setCurrentChallenge] = useState<UnifiedChallenge | null>(null);
+  const [isCardFlipped, setIsCardFlipped] = useState(true);
   const [isConsentModalOpen, setIsConsentModalOpen] = useState(false);
-  const [pendingConsentChallenge, setPendingConsentChallenge] = useState<UnifiedChallenge | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [isSyncCountdown, setIsSyncCountdown] = useState(false);
-  const [syncCount, setSyncCount] = useState(3);
+  const [isSyncCountingDown, setIsSyncCountingDown] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
 
   // Mount logic: Load active session
   useEffect(() => {
     const timer = setTimeout(() => {
-      setIsMuted(sounds.getIsMuted());
       const saved = loadActiveSession<CoupleSessionData>();
       if (saved && saved.mode === 'COUPLE' && saved.status !== 'FINISHED') {
         setSession(saved);
@@ -82,6 +80,7 @@ export default function CoupleGamePage() {
         setTotalRounds(saved.totalRounds || 16);
         setBoundaries(saved.boundaries || { allowPhysical: true, allowAlcohol: true, allowExplicitTalk: true });
         setIsSetup(false);
+        setIsCardFlipped(true);
       }
     }, 0);
     return () => clearTimeout(timer);
@@ -117,27 +116,7 @@ export default function CoupleGamePage() {
     return () => clearInterval(timer);
   }, [isTimerRunning, countdown]);
 
-  // SYNC 3-2-1 Countdown Effect
-  useEffect(() => {
-    let syncInterval: NodeJS.Timeout;
-    if (isSyncCountdown) {
-      sounds.playHeartbeat();
-      syncInterval = setInterval(() => {
-        setSyncCount((prev) => {
-          if (prev <= 1) {
-            setIsSyncCountdown(false);
-            sounds.playFanfare();
-            return 0;
-          }
-          sounds.playTick();
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(syncInterval);
-  }, [isSyncCountdown]);
-
-  // Start Couple Game
+  // Start Game
   const handleStartGame = () => {
     sounds.playFanfare();
 
@@ -191,9 +170,9 @@ export default function CoupleGamePage() {
     setCurrentChallenge(firstSelection?.challenge || null);
     setIsSetup(false);
     setIsGameOver(false);
+    setIsCardFlipped(true);
 
     if (firstSelection?.challenge.requiresConsent) {
-      setPendingConsentChallenge(firstSelection.challenge);
       setIsConsentModalOpen(true);
     }
   };
@@ -215,14 +194,13 @@ export default function CoupleGamePage() {
     const nextPhase = calculateGamePhase(nextRound, session.totalRounds);
     const nextAllowed = calculateAllowedIntensity(nextRound, session.totalRounds, session.maxAllowedIntensity);
 
-    // Update sync score if applicable
+    // Update sync score
     const updatedSync = { ...session.syncScore };
     if (currentChallenge?.type === 'SYNC') {
       updatedSync.total += 1;
       if (syncMatched) updatedSync.matches += 1;
     }
 
-    // Alternate turns A -> B -> BOTH (if SYNC)
     const nextTurn = nextRound % 2 === 1 ? 'A' : 'B';
 
     const nextSelection = selectNextUnifiedChallenge({
@@ -241,592 +219,562 @@ export default function CoupleGamePage() {
     });
 
     if (nextSelection) {
-      sounds.playFlip();
-      const updatedSession: CoupleSessionData = {
-        ...session,
-        currentRound: nextRound,
-        currentPhase: nextPhase,
-        currentAllowedIntensity: nextAllowed,
-        syncScore: updatedSync,
-        currentTurn: nextSelection.challenge.type === 'SYNC' ? 'BOTH' : nextTurn,
-        completedChallengeIds: nextSelection.updatedCompletedIds,
-        currentChallenge: nextSelection.challenge,
-      };
+      sounds.playCardFlip();
+      setIsCardFlipped(false);
 
-      setSession(updatedSession);
-      setCurrentChallenge(nextSelection.challenge);
-      setIsTimerRunning(false);
-      setCountdown(null);
-      setIsSyncCountdown(false);
+      setTimeout(() => {
+        const updatedSession: CoupleSessionData = {
+          ...session,
+          currentRound: nextRound,
+          currentPhase: nextPhase,
+          currentAllowedIntensity: nextAllowed,
+          syncScore: updatedSync,
+          currentTurn: nextSelection.challenge.type === 'SYNC' ? 'BOTH' : nextTurn,
+          completedChallengeIds: nextSelection.updatedCompletedIds,
+          currentChallenge: nextSelection.challenge,
+        };
 
-      if (nextSelection.challenge.requiresConsent) {
-        setPendingConsentChallenge(nextSelection.challenge);
-        setIsConsentModalOpen(true);
-      }
+        setSession(updatedSession);
+        setCurrentChallenge(nextSelection.challenge);
+        setIsTimerRunning(false);
+        setCountdown(null);
+        setIsSyncCountingDown(false);
+        setIsCardFlipped(true);
+
+        if (nextSelection.challenge.requiresConsent) {
+          setIsConsentModalOpen(true);
+        }
+      }, 350);
     }
   };
 
-  // Lower intensity on the fly
-  const handleLowerIntensity = () => {
-    if (!session || session.maxAllowedIntensity <= 1) return;
-    const nextCeiling = (session.maxAllowedIntensity - 1) as IntensityLevel;
-    sounds.playClick();
-    const updatedSession: CoupleSessionData = {
+  const handleLowerIntensity = (newCeiling: IntensityLevel) => {
+    if (!session) return;
+    sounds.playFanfare();
+    const updated: CoupleSessionData = {
       ...session,
-      maxAllowedIntensity: nextCeiling,
-      currentAllowedIntensity: Math.min(session.currentAllowedIntensity, nextCeiling) as IntensityLevel,
+      maxAllowedIntensity: newCeiling,
+      currentAllowedIntensity: Math.min(session.currentAllowedIntensity, newCeiling) as IntensityLevel,
+      history: [
+        ...session.history,
+        {
+          id: `log_lower_${Date.now()}`,
+          timestamp: Date.now(),
+          type: 'INTENSITY_CHANGE',
+          summary: `ลดเพดานความเดือดลงเหลือ Level ${newCeiling}`,
+        },
+      ],
     };
-    setSession(updatedSession);
-    setMaxIntensity(nextCeiling);
+    setSession(updated);
+    setMaxIntensity(newCeiling);
+    saveActiveSession(updated);
   };
 
-  const currentPhaseInfo = session ? GAME_PHASES[session.currentPhase] : GAME_PHASES.WARM_UP;
-  const currentActivePartner = session
-    ? session.currentTurn === 'BOTH'
+  const activeTurnName =
+    session?.currentTurn === 'BOTH'
       ? 'ทั้งสองคน'
-      : session.currentTurn === 'A'
+      : session?.currentTurn === 'A'
       ? session.partnerAName
-      : session.partnerBName
-    : '';
+      : session?.partnerBName || '';
+
+  const currentPhaseInfo = session ? GAME_PHASES[session.currentPhase] : GAME_PHASES.WARM_UP;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none pb-12">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-slate-950/85 border-b border-zinc-800/80 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <Link
-            href="/"
-            onClick={() => sounds.playClick()}
-            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white"
-            aria-label="ย้อนกลับ"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-          <div>
-            <h1 className="text-sm font-black tracking-widest text-white flex items-center gap-1.5 uppercase">
-              <span className="w-2 h-2 rounded-full bg-rose-500 shadow-sm shadow-rose-500" />
-              <span>COUPLE MODE</span>
-            </h1>
-            <span className="text-[10px] text-zinc-400 font-medium">2 คน • สกินชิพ & ความไว้ใจ</span>
-          </div>
-        </div>
+    <div className="min-h-screen bg-tabletop text-slate-100 flex flex-col font-sans select-none pb-12">
+      <GameHeader title="COUPLE MODE" showBack={true} backHref="/" />
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              const muted = sounds.toggleMute();
-              setIsMuted(muted);
-              if (!muted) sounds.playClick();
-            }}
-            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white"
-          >
-            {isMuted ? <VolumeX className="w-4 h-4 text-zinc-500" /> : <Volume2 className="w-4 h-4 text-rose-400" />}
-          </button>
-          {!isSetup && (
-            <button
-              type="button"
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        {/* ===================== GAME OVER VIEW ===================== */}
+        {isGameOver ? (
+          <div className="max-w-md mx-auto p-6 rounded-3xl bg-zinc-900 border-2 border-rose-500/50 shadow-rose-glow text-center space-y-5 animate-in fade-in">
+            <div className="w-16 h-16 rounded-3xl bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center text-3xl">
+              💞
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-black text-white">กระชับรักสำเร็จ!</h2>
+              <p className="text-sm text-zinc-300">
+                {session?.partnerAName} & {session?.partnerBName} เล่นครบทั้ง {session?.totalRounds} รอบแล้ว
+              </p>
+            </div>
+            {session && session.syncScore.total > 0 && (
+              <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-1 text-center">
+                <div className="text-xs font-bold text-rose-400 uppercase">คะแนนใจตรงกัน (SYNC SCORE)</div>
+                <div className="text-3xl font-black text-white">
+                  {session.syncScore.matches} / {session.syncScore.total}
+                </div>
+                <div className="text-xs text-zinc-400">
+                  {session.syncScore.matches === session.syncScore.total
+                    ? 'สุดยอดคู่แท้! ใจตรงกัน 100%'
+                    : 'รู้จักใจกันมากขึ้นอีกระดับ'}
+                </div>
+              </div>
+            )}
+            <PrimaryActionButton
+              variant="rose"
               onClick={() => {
-                if (confirm('ต้องการเริ่มเกมใหม่ใช่หรือไม่?')) {
-                  clearActiveSession();
-                  setIsSetup(true);
-                }
+                sounds.playClick();
+                setIsSetup(true);
+                setIsGameOver(false);
+                setSession(null);
               }}
-              className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-rose-400"
-              title="เริ่มใหม่"
             >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 w-full max-w-md mx-auto p-4 space-y-4">
-        {/* ===================== SETUP VIEW ===================== */}
-        {isSetup ? (
-          <div className="space-y-4 animate-in fade-in duration-300">
-            {/* Hero */}
-            <div className="text-center space-y-1.5 pt-2">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-black">
-                <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
-                <span>COUPLE MODE SETUP</span>
-              </div>
-              <h2 className="text-2xl font-black text-white">ตั้งค่าทายใจคู่รัก</h2>
-              <p className="text-xs text-zinc-400">ประสบการณ์เฉพาะสำหรับ 2 คน ตามระยะความสัมพันธ์</p>
+              เล่นอีกรอบ
+            </PrimaryActionButton>
+          </div>
+        ) : isSetup ? (
+          <div className="max-w-xl mx-auto space-y-6">
+            {/* Step Indicators */}
+            <div className="flex items-center justify-between px-2">
+              {[
+                { step: 1, label: 'คู่รัก' },
+                { step: 2, label: 'ความเดือด' },
+                { step: 3, label: 'ขอบเขต' },
+                { step: 4, label: 'เริ่มเล่น' },
+              ].map((s) => (
+                <button
+                  key={s.step}
+                  type="button"
+                  onClick={() => setSetupStep(s.step as 1 | 2 | 3 | 4)}
+                  className={`flex items-center gap-1.5 text-xs font-black transition-all ${
+                    setupStep === s.step ? 'text-rose-400' : 'text-zinc-500'
+                  }`}
+                >
+                  <span
+                    className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      setupStep === s.step ? 'bg-rose-500 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400'
+                    }`}
+                  >
+                    {s.step}
+                  </span>
+                  <span>{s.label}</span>
+                </button>
+              ))}
             </div>
 
-            {/* Partners Input */}
-            <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-4 space-y-3">
-              <label className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
-                <Heart className="w-4 h-4 text-rose-400" />
-                <span>ชื่อของทั้งสองคน</span>
-              </label>
-
-              <div className="grid grid-cols-2 gap-2.5">
+            {/* STEP 1: NAMES & RELATIONSHIP STAGE */}
+            {setupStep === 1 && (
+              <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-rose-500/30 space-y-5 shadow-tactile-rest">
                 <div className="space-y-1">
-                  <span className="text-[10px] text-zinc-400 font-bold">คนที่ 1 (Partner A)</span>
-                  <input
-                    type="text"
-                    value={partnerA}
-                    onChange={(e) => setPartnerA(e.target.value)}
-                    placeholder="ที่รัก"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-rose-400"
-                  />
+                  <h2 className="text-2xl font-black text-white">ชื่อของคุณทั้งสองคน</h2>
+                  <p className="text-sm text-zinc-400">สำหรับส่งโทรศัพท์และภารกิจทายใจ</p>
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-rose-400 uppercase">คนแรก</label>
+                    <input
+                      type="text"
+                      value={partnerA}
+                      onChange={(e) => setPartnerA(e.target.value)}
+                      className="w-full mt-1 min-h-[48px] bg-zinc-950 border-2 border-zinc-800 rounded-2xl px-4 text-sm font-bold text-white focus:outline-none focus:border-rose-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-amber-400 uppercase">คนที่สอง</label>
+                    <input
+                      type="text"
+                      value={partnerB}
+                      onChange={(e) => setPartnerB(e.target.value)}
+                      className="w-full mt-1 min-h-[48px] bg-zinc-950 border-2 border-zinc-800 rounded-2xl px-4 text-sm font-bold text-white focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Relationship Stage Cards */}
+                <div className="space-y-2 pt-2">
+                  <label className="text-xs font-black text-zinc-300 uppercase tracking-wider">
+                    ระยะความสัมพันธ์
+                  </label>
+                  <div className="space-y-2.5">
+                    {[
+                      {
+                        stage: 'BEFORE_DATING' as RelationshipStage,
+                        title: 'คนคุย / เริ่มเดท (Talking Stage)',
+                        desc: 'เน้นคุยสนุก หยอดมุกน่ารัก ละลายความเขิน ไม่ล้ำเส้นความเป็นส่วนตัว',
+                      },
+                      {
+                        stage: 'BEFORE_INTIMACY' as RelationshipStage,
+                        title: 'แฟนที่กำลังสร้างความไว้ใจ (Building Trust)',
+                        desc: 'สกินชิพใกล้ชิด ถามใจลึกซึ้ง เพิ่มความผูกพันและเปิดอก',
+                      },
+                      {
+                        stage: 'ESTABLISHED_INTIMACY' as RelationshipStage,
+                        title: 'คู่รักรู้ใจ / สามีภรรยา (Established)',
+                        desc: 'ทายใจเรื่องบนเตียง รสนิยมลับ และเติมไฟรักสุดเร่าร้อน',
+                      },
+                    ].map((item) => {
+                      const isSelected = relationshipStage === item.stage;
+                      return (
+                        <button
+                          key={item.stage}
+                          type="button"
+                          onClick={() => {
+                            sounds.playClick();
+                            setRelationshipStage(item.stage);
+                          }}
+                          className={`w-full text-left p-4 rounded-2xl border-2 transition-all flex items-center justify-between ${
+                            isSelected
+                              ? 'bg-rose-500/15 border-rose-400 shadow-rose-glow ring-1 ring-rose-400'
+                              : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div>
+                            <div className={`text-base font-black ${isSelected ? 'text-rose-400' : 'text-white'}`}>
+                              {item.title}
+                            </div>
+                            <div className="text-xs text-zinc-400 mt-0.5">{item.desc}</div>
+                          </div>
+                          {isSelected && <Check className="w-5 h-5 text-rose-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <PrimaryActionButton variant="rose" onClick={() => setSetupStep(2)}>
+                  ถัดไป: เลือกระดับความเดือด
+                </PrimaryActionButton>
+              </div>
+            )}
+
+            {/* STEP 2: INTENSITY */}
+            {setupStep === 2 && (
+              <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-rose-500/30 space-y-5 shadow-tactile-rest">
                 <div className="space-y-1">
-                  <span className="text-[10px] text-zinc-400 font-bold">คนที่ 2 (Partner B)</span>
-                  <input
-                    type="text"
-                    value={partnerB}
-                    onChange={(e) => setPartnerB(e.target.value)}
-                    placeholder="ตัวเอง"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-rose-400"
-                  />
+                  <h2 className="text-2xl font-black text-white">เพดานความเดือดสูงสุด</h2>
+                  <p className="text-sm text-zinc-400">เกมจะค่อยๆ ไต่ระดับจากความหวานสู่ความแซ่บ</p>
+                </div>
+
+                <div className="space-y-2.5">
+                  {[
+                    { level: 1, name: 'SWEET & CHILL (ระดับ 1)', desc: 'หวานละมุน น่ารัก อบอุ่นหัวใจ' },
+                    { level: 2, name: 'FLIRTY & TENDER (ระดับ 2)', desc: 'หยอดเสน่ห์ สบตา สกินชิพชวนเขิน' },
+                    { level: 3, name: 'SPICY & ROMANTIC (ระดับ 3)', desc: '18+ สัมผัสแนบชิด จุดประกายความวาบหวาม' },
+                    { level: 4, name: 'PASSIONATE (ระดับ 4)', desc: '20+ เรื่องบนเตียง สัมผัสถึงอารมณ์รัก' },
+                    { level: 5, name: 'WILD & UNLEASHED (ระดับ 5)', desc: '20+ แฟนตาซี บทบาทสมมติ ปลดปล่อยเต็มที่' },
+                  ].map((item) => {
+                    const isSelected = maxIntensity === item.level;
+                    return (
+                      <button
+                        key={item.level}
+                        type="button"
+                        onClick={() => {
+                          sounds.playClick();
+                          setMaxIntensity(item.level as IntensityLevel);
+                        }}
+                        className={`w-full text-left p-4 rounded-2xl border-2 transition-all flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-rose-500/15 border-rose-400 shadow-rose-glow ring-1 ring-rose-400'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                        }`}
+                      >
+                        <div>
+                          <div className={`text-base font-black ${isSelected ? 'text-rose-400' : 'text-white'}`}>
+                            {item.name}
+                          </div>
+                          <div className="text-xs text-zinc-400 mt-0.5">{item.desc}</div>
+                        </div>
+                        {isSelected && <Check className="w-5 h-5 text-rose-400" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex gap-3">
+                  <SecondaryActionButton fullWidth={false} onClick={() => setSetupStep(1)}>
+                    ย้อนกลับ
+                  </SecondaryActionButton>
+                  <PrimaryActionButton variant="rose" onClick={() => setSetupStep(3)}>
+                    ถัดไป: ตั้งค่าขอบเขต
+                  </PrimaryActionButton>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Relationship Stage (CRITICAL) */}
-            <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-4 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>ระยะความสัมพันธ์ (RELATIONSHIP STAGE)</span>
-                </label>
+            {/* STEP 3: BOUNDARIES */}
+            {setupStep === 3 && (
+              <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-rose-500/30 space-y-5 shadow-tactile-rest">
+                <BoundarySelector boundaries={boundaries} onChange={setBoundaries} />
+
+                <div className="flex gap-3 pt-2">
+                  <SecondaryActionButton fullWidth={false} onClick={() => setSetupStep(2)}>
+                    ย้อนกลับ
+                  </SecondaryActionButton>
+                  <PrimaryActionButton variant="rose" onClick={() => setSetupStep(4)}>
+                    ถัดไป: สรุปและเริ่มเกม
+                  </PrimaryActionButton>
+                </div>
               </div>
+            )}
 
-              <div className="space-y-2">
-                {[
-                  {
-                    stage: 'BEFORE_DATING' as RelationshipStage,
-                    badge: 'STAGE A: คนคุย / กำลังจีบ',
-                    desc: 'ยังไม่ได้คบเป็นแฟน เน้นหยอดเสน่ห์ ค้นหาความชอบ ความประทับใจแรก สบตา และสร้างเคมีโรแมนติก',
-                    color: 'border-sky-500/50 bg-sky-500/10 text-sky-300',
-                  },
-                  {
-                    stage: 'BEFORE_INTIMACY' as RelationshipStage,
-                    badge: 'STAGE B: แฟน / เพิ่งเริ่มคบ',
-                    desc: 'คบกันแล้วแต่กำลังสร้างความไว้ใจ เน้นการเปิดใจ ความมั่นคงทางอารมณ์ และสำรวจความใกล้ชิดตามจังหวะ',
-                    color: 'border-rose-500/50 bg-rose-500/10 text-rose-300',
-                  },
-                  {
-                    stage: 'ESTABLISHED_INTIMACY' as RelationshipStage,
-                    badge: 'STAGE C: คู่รักรู้ใจ / คบมานาน',
-                    desc: 'สนิทสนมกันดี ไม่ต้องเริ่มจากคำถามคนคุย เน้นความแปลกใหม่ ทายใจเรื่องบนเตียง แฟนตาซี และปลุกไฟรัก',
-                    color: 'border-purple-500/50 bg-purple-500/10 text-purple-300',
-                  },
-                ].map((item) => (
-                  <button
-                    key={item.stage}
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      setRelationshipStage(item.stage);
-                    }}
-                    className={`w-full p-3 rounded-2xl border text-left transition-all ${
-                      relationshipStage === item.stage
-                        ? `${item.color} ring-1 ring-white/20 shadow-lg`
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                    }`}
+            {/* STEP 4: SUMMARY & START */}
+            {setupStep === 4 && (
+              <div className="p-6 rounded-3xl bg-zinc-900/90 border-2 border-rose-500/30 space-y-6 shadow-tactile-rest">
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-black text-white">พร้อมกระชับรักแล้ว!</h2>
+                  <p className="text-sm text-zinc-400">ตรวจสอบความพร้อมแล้วเริ่มเล่นกันเลย</p>
+                </div>
+
+                {/* Summary Box */}
+                <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 font-bold">คู่รัก:</span>
+                    <span className="text-white font-black">{partnerA} & {partnerB}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 font-bold">ความสัมพันธ์:</span>
+                    <span className="text-rose-400 font-black">{relationshipStage}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400 font-bold">เพดานความเดือด:</span>
+                    <span className="text-amber-400 font-black">Level {maxIntensity} ({INTENSITY_TO_VIBE[maxIntensity]})</span>
+                  </div>
+                </div>
+
+                {/* Rounds */}
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-zinc-300 uppercase tracking-wider">
+                    จำนวนรอบ (ROUNDS)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[12, 16, 24].map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setTotalRounds(r)}
+                        className={`min-h-[48px] rounded-2xl font-black text-sm border-2 ${
+                          totalRounds === r
+                            ? 'bg-rose-500 text-white border-rose-400 shadow-md'
+                            : 'bg-zinc-950 text-zinc-300 border-zinc-800'
+                        }`}
+                      >
+                        {r} รอบ
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <SecondaryActionButton fullWidth={false} onClick={() => setSetupStep(3)}>
+                    ย้อนกลับ
+                  </SecondaryActionButton>
+                  <PrimaryActionButton
+                    variant="rose"
+                    icon={<Heart className="w-5 h-5 fill-current" />}
+                    onClick={handleStartGame}
                   >
-                    <div className="text-xs font-black text-white">{item.badge}</div>
-                    <div className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">{item.desc}</div>
-                  </button>
-                ))}
+                    เริ่มเล่นเกมคู่รัก!
+                  </PrimaryActionButton>
+                </div>
               </div>
-            </div>
-
-            {/* Max Intensity Selector */}
-            <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-4 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
-                  <Flame className="w-4 h-4 text-rose-500" />
-                  <span>เพดานความเดือด (MAX INTENSITY)</span>
-                </label>
-                <span className="text-[10px] text-rose-400 font-bold">Level {maxIntensity}</span>
-              </div>
-
-              <div className="grid grid-cols-5 gap-1.5">
-                {[
-                  { level: 1, label: 'SWEET' },
-                  { level: 2, label: 'FLIRTY' },
-                  { level: 3, label: 'SPICY' },
-                  { level: 4, label: 'WILD' },
-                  { level: 5, label: 'EROTIC' },
-                ].map((item) => (
-                  <button
-                    key={item.level}
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      setMaxIntensity(item.level as IntensityLevel);
-                    }}
-                    className={`py-2 px-1 rounded-2xl border text-center transition-all ${
-                      maxIntensity === item.level
-                        ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-black ring-1 ring-rose-500'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 font-bold'
-                    }`}
-                  >
-                    <div className="text-xs">{item.level}</div>
-                    <div className="text-[9px] truncate">{item.label}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Rounds */}
-            <div className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-4 space-y-2">
-              <label className="text-xs font-black text-white flex items-center gap-1.5 uppercase">
-                <Zap className="w-4 h-4 text-amber-400" />
-                <span>จำนวนรอบภารกิจ</span>
-              </label>
-
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { rounds: 10, label: '10 รอบ', sub: 'ด่วน ~15 นาที' },
-                  { rounds: 16, label: '16 รอบ', sub: 'มาตรฐาน ~25 นาที' },
-                  { rounds: 24, label: '24 รอบ', sub: 'จัดเต็ม ~40 นาที' },
-                ].map((item) => (
-                  <button
-                    key={item.rounds}
-                    type="button"
-                    onClick={() => {
-                      sounds.playClick();
-                      setTotalRounds(item.rounds);
-                    }}
-                    className={`p-2.5 rounded-2xl border text-center transition-all ${
-                      totalRounds === item.rounds
-                        ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-black ring-1 ring-rose-500'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 font-bold'
-                    }`}
-                  >
-                    <div className="text-xs">{item.label}</div>
-                    <div className="text-[10px] text-zinc-500">{item.sub}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Start Button */}
-            <button
-              type="button"
-              onClick={handleStartGame}
-              className="w-full py-4 rounded-3xl bg-gradient-to-r from-rose-500 via-pink-500 to-purple-600 text-white font-black text-base shadow-xl hover:opacity-95 active:scale-98 flex items-center justify-center gap-2"
-            >
-              <Heart className="w-5 h-5 fill-current" />
-              <span>เริ่มเกมทายใจคู่รัก ({totalRounds} รอบ)</span>
-            </button>
+            )}
           </div>
         ) : (
-          /* ===================== GAMEPLAY VIEW ===================== */
-          <div className="space-y-4 animate-in fade-in duration-300">
-            {/* Progression & Pacing Indicator */}
-            <div className="w-full bg-zinc-900/90 border border-zinc-800 rounded-3xl p-3.5 space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold">
-                <span
-                  className="px-2.5 py-0.5 rounded-full text-[11px] font-black"
-                  style={{
-                    backgroundColor: `${currentPhaseInfo.accentColor}25`,
-                    color: currentPhaseInfo.accentColor,
-                    border: `1px solid ${currentPhaseInfo.accentColor}50`,
-                  }}
-                >
+          /* ===================== ACTIVE GAMEPLAY VIEW ===================== */
+          <div className="space-y-6 max-w-xl mx-auto">
+            {/* Top Bar Progress */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs sm:text-sm font-bold">
+                <span className="px-3 py-1 rounded-full bg-zinc-900 border border-zinc-700 text-rose-400">
                   {currentPhaseInfo.badge}
                 </span>
 
-                <div className="flex items-center gap-2">
-                  {Boolean(session && session.syncScore.total > 0) && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                      Sync: {session?.syncScore.matches}/{session?.syncScore.total}
+                <div className="flex items-center gap-2 font-mono">
+                  {session && session.syncScore.total > 0 && (
+                    <span className="text-xs bg-rose-950/60 text-rose-300 border border-rose-500/40 px-2.5 py-1 rounded-full">
+                      SYNC: {session.syncScore.matches}/{session.syncScore.total}
                     </span>
                   )}
-                  <span className="text-zinc-400 font-mono text-xs">
-                    รอบ {session?.currentRound}/{session?.totalRounds}
+                  <span className="text-zinc-300 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">
+                    รอบ {session?.currentRound} / {session?.totalRounds}
                   </span>
                 </div>
               </div>
 
-              <div className="relative w-full h-2 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+              {/* Progress Bar */}
+              <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-rose-400 via-pink-500 to-purple-500 transition-all duration-500"
+                  className="h-full bg-gradient-to-r from-rose-400 via-coral-400 to-amber-400 rounded-full transition-all duration-500"
                   style={{
                     width: `${Math.min(100, Math.round(((session?.currentRound || 1) / (session?.totalRounds || 16)) * 100))}%`,
                   }}
                 />
               </div>
+
+              {/* Ceiling Lowering Control */}
+              {session && (
+                <IntensityCeilingControl
+                  currentCeiling={session.maxAllowedIntensity}
+                  onLowerCeiling={handleLowerIntensity}
+                />
+              )}
             </div>
 
             {/* Turn Banner */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-zinc-900 border border-zinc-800">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-400 animate-pulse" />
-                <span className="text-xs font-black text-white">ถึงตาของ: {currentActivePartner}</span>
+            <div
+              role="region"
+              aria-label="ตาของผู้เล่นปัจจุบัน"
+              className="w-full p-4 rounded-3xl bg-zinc-900/90 border-2 border-rose-500/30 shadow-tactile-rest flex items-center justify-between gap-3 backdrop-blur-md"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center font-black text-xl shadow-sm">
+                  <Heart className="w-6 h-6 fill-current" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-rose-400 uppercase tracking-wider">
+                    ถึงตาของ
+                  </div>
+                  <div className="text-xl sm:text-2xl font-black text-white">
+                    {activeTurnName}
+                  </div>
+                </div>
               </div>
-              <span className="text-[10px] text-zinc-400">
-                {currentChallenge?.type === 'SYNC' ? 'ทายใจ 3-2-1 พร้อมกัน' : 'สลับกันเล่นอย่างใกล้ชิด'}
-              </span>
+
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 text-zinc-300 text-xs sm:text-sm font-bold">
+                <Smartphone className="w-4 h-4 text-rose-400 animate-pulse" />
+                <span>ส่งมือถือให้ {activeTurnName}</span>
+              </div>
             </div>
 
-            {/* Challenge Card */}
+            {/* Center: Tactile Card */}
             {currentChallenge && (
-              <div className="rounded-3xl p-6 bg-gradient-to-b from-zinc-900 to-zinc-950 border border-zinc-800 shadow-2xl space-y-5 min-h-[300px] flex flex-col justify-between">
-                {/* Header Tag */}
-                <div className="flex items-center justify-between">
-                  <span className={`px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase border shadow-sm ${
-                    currentChallenge.type === 'SYNC'
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                      : currentChallenge.type === 'TRUTH'
-                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                  }`}>
-                    {currentChallenge.type === 'SYNC' ? '🎯 SYNC 3-2-1' : currentChallenge.type === 'TRUTH' ? '💬 TRUTH' : '🔥 DARE'}
-                  </span>
-
-                  <div className="flex items-center gap-1.5">
-                    {currentChallenge.isPhysical && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                        สกินชิพ
-                      </span>
-                    )}
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-800 text-zinc-300">
-                      Level {currentChallenge.intensity}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Content */}
-                <div className="space-y-3 text-center py-2">
-                  {currentChallenge.title && (
-                    <div className="text-xs font-black text-rose-400 uppercase tracking-wider">
-                      {currentChallenge.title}
-                    </div>
-                  )}
-                  <h3 className="text-lg sm:text-xl font-black text-white leading-relaxed">
-                    {currentChallenge.content}
-                  </h3>
-
-                  {/* SYNC 3-2-1 Options Presentation */}
-                  {currentChallenge.type === 'SYNC' && currentChallenge.options && (
-                    <div className="space-y-3 pt-2">
-                      {isSyncCountdown ? (
-                        <div className="py-4 text-center">
-                          <span className="text-5xl font-black text-rose-400 animate-ping">
-                            {syncCount}
-                          </span>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSyncCount(3);
-                            setIsSyncCountdown(true);
-                          }}
-                          className="px-4 py-2 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-black hover:bg-rose-500/30 active:scale-95"
-                        >
-                          ▶ กดนับถอยหลัง 3-2-1 แล้วพูดพร้อมกัน!
-                        </button>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-2 text-xs font-bold pt-1">
-                        <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-200">
-                          {currentChallenge.options[0]}
-                        </div>
-                        <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-200">
-                          {currentChallenge.options[1]}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {currentChallenge.alternativeAction && (
-                    <div className="p-2.5 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 text-[11px] text-zinc-400 text-left">
-                      <span className="text-amber-400 font-bold">ถ้าตอบไม่ตรงกัน / ไม่สะดวกใจ: </span>
-                      <span>{currentChallenge.alternativeAction}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Duration timer */}
-                {currentChallenge.estimatedDuration && currentChallenge.type !== 'SYNC' && (
-                  <div className="flex items-center justify-center gap-2 pt-1">
-                    {countdown === null ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCountdown(currentChallenge.estimatedDuration || 20);
-                          setIsTimerRunning(true);
-                          sounds.playClick();
-                        }}
-                        className="px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-300 flex items-center gap-1.5"
+              <PhysicalGameCard
+                isFlipped={isCardFlipped}
+                variant="couple"
+                frontContent={
+                  <div className="flex flex-col justify-between h-full p-2 space-y-4">
+                    {/* Header Tag */}
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-black tracking-wider uppercase border shadow-sm ${
+                          currentChallenge.type === 'SYNC'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : currentChallenge.type === 'TRUTH'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                            : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        }`}
                       >
-                        <TimerIcon className="w-3.5 h-3.5 text-rose-400" />
-                        <span>เริ่มจับเวลา ({currentChallenge.estimatedDuration} วิ)</span>
-                      </button>
-                    ) : (
-                      <div className="px-4 py-1.5 rounded-full font-mono font-black text-sm flex items-center gap-2 border bg-zinc-800 border-zinc-700 text-rose-400">
-                        <TimerIcon className="w-4 h-4" />
-                        <span>{countdown} วินาที</span>
+                        {currentChallenge.type === 'SYNC'
+                          ? '💞 SYNC 3-2-1 ทายใจ'
+                          : currentChallenge.type === 'TRUTH'
+                          ? '💬 ถามใจ (TRUTH)'
+                          : '⚡ ภารกิจคู่ (CHALLENGE)'}
+                      </span>
+
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                        Level {currentChallenge.intensity}
+                      </span>
+                    </div>
+
+                    {/* Challenge Body */}
+                    <div className="my-auto text-center py-4 space-y-3">
+                      <h3 className="text-2xl sm:text-3xl font-black text-white leading-relaxed">
+                        {currentChallenge.content}
+                      </h3>
+
+                      {/* Options for SYNC */}
+                      {currentChallenge.options && !isSyncCountingDown && (
+                        <div className="grid grid-cols-2 gap-2 pt-2">
+                          <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm font-black text-rose-300">
+                            A: {currentChallenge.options[0]}
+                          </div>
+                          <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm font-black text-amber-300">
+                            B: {currentChallenge.options[1]}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SYNC Countdown Trigger or Widget */}
+                    {currentChallenge.type === 'SYNC' && (
+                      <div className="pt-2">
+                        {!isSyncCountingDown ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sounds.playClick();
+                              setIsSyncCountingDown(true);
+                            }}
+                            className="w-full min-h-[50px] rounded-2xl bg-gradient-to-r from-rose-500 to-amber-500 hover:opacity-95 text-white font-black text-sm flex items-center justify-center gap-2 shadow-md"
+                          >
+                            <Zap className="w-4 h-4 fill-current" />
+                            <span>เริ่มนับ SYNC 3-2-1</span>
+                          </button>
+                        ) : (
+                          <SyncCountdown
+                            options={currentChallenge.options}
+                            onComplete={() => setIsSyncCountingDown(false)}
+                          />
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                }
+                backContent={
+                  <div className="flex flex-col items-center justify-center h-full text-center space-y-3 p-4">
+                    <div className="w-16 h-16 rounded-3xl bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center text-3xl shadow-lg">
+                      ❤️
+                    </div>
+                    <div className="text-xl font-black text-white">COUPLE CARD</div>
+                    <p className="text-xs text-zinc-400">แตะเพื่อเปิดภารกิจคู่รัก</p>
+                  </div>
+                }
+              />
             )}
 
-            {/* SYNC vs Regular Action Buttons */}
+            {/* Bottom Actions */}
             {currentChallenge?.type === 'SYNC' ? (
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleNextTurn(false)}
-                  className="py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-98"
-                >
-                  <X className="w-4 h-4 text-zinc-500" />
-                  <span>ตอบไม่ตรงกัน</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playFanfare();
-                    handleNextTurn(true);
-                  }}
-                  className="py-3.5 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-black text-xs shadow-lg hover:opacity-95 flex items-center justify-center gap-1.5 active:scale-98"
-                >
-                  <Heart className="w-4 h-4 fill-current" />
-                  <span>ใจตรงกันเป๊ะ! (+1 Sync)</span>
-                </button>
+              <div className="space-y-2 pt-2">
+                <div className="text-center text-xs font-bold text-zinc-400">
+                  ใจตรงกันไหม?
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <SecondaryActionButton onClick={() => handleNextTurn(false)}>
+                    ไม่ตรงกัน
+                  </SecondaryActionButton>
+                  <PrimaryActionButton
+                    variant="rose"
+                    icon={<Heart className="w-5 h-5 fill-current" />}
+                    onClick={() => handleNextTurn(true)}
+                  >
+                    ใจตรงกัน! (+1)
+                  </PrimaryActionButton>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleNextTurn(false)}
-                  className="py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-98"
+                <SecondaryActionButton
+                  icon={<X className="w-5 h-5 text-zinc-400" />}
+                  onClick={() => handleNextTurn()}
                 >
-                  <X className="w-4 h-4 text-zinc-500" />
-                  <span>ขอ Pass / เปลี่ยนข้อ</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    handleNextTurn(false);
-                  }}
-                  className="py-3.5 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 text-white font-black text-xs shadow-lg hover:opacity-95 flex items-center justify-center gap-1.5 active:scale-98"
-                >
-                  <Check className="w-4 h-4 stroke-[3]" />
-                  <span>ทำสำเร็จ / ตอบแล้ว</span>
-                </button>
-              </div>
-            )}
+                  ข้ามข้อนี้
+                </SecondaryActionButton>
 
-            {/* Lower Intensity Pill */}
-            {session && session.maxAllowedIntensity > 1 && (
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={handleLowerIntensity}
-                  className="text-[11px] text-zinc-500 hover:text-rose-400 underline underline-offset-4 inline-flex items-center gap-1"
+                <PrimaryActionButton
+                  variant="rose"
+                  icon={<Check className="w-5 h-5" />}
+                  onClick={() => handleNextTurn()}
                 >
-                  <TrendingDown className="w-3 h-3" />
-                  <span>ลดความเดือดลง 1 ขั้น (ปัจจุบัน Level {session.maxAllowedIntensity})</span>
-                </button>
+                  เสร็จแล้ว
+                </PrimaryActionButton>
               </div>
             )}
           </div>
         )}
 
-        {/* ===================== CONSENT MODAL ===================== */}
-        {isConsentModalOpen && pendingConsentChallenge && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
-              <div className="flex items-center gap-2.5 text-rose-400">
-                <HeartHandshake className="w-6 h-6 shrink-0" />
-                <h3 className="text-base font-black text-white">ต้องการความยินยอมของทั้งสองฝ่าย</h3>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800/80 text-xs text-zinc-300 space-y-1.5">
-                <p className="font-bold text-white">ภารกิจนี้เกี่ยวข้องกับความใกล้ชิดหรือสกินชิพ:</p>
-                <p className="text-zinc-400">{pendingConsentChallenge.content}</p>
-              </div>
-
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                ทั้งสองคนต้องยินยอมด้วยความเต็มใจ หากฝ่ายใดฝ่ายหนึ่งรู้สึกเขินหรือยังไม่พร้อม สามารถขอเปลี่ยนข้อได้ทันทีโดยไม่มีบทลงโทษ
-              </p>
-
-              <div className="grid grid-cols-2 gap-2.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playClick();
-                    setIsConsentModalOpen(false);
-                    handleNextTurn(false);
-                  }}
-                  className="py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs"
-                >
-                  ไม่สะดวกใจ / เปลี่ยนข้อ
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playFanfare();
-                    setIsConsentModalOpen(false);
-                  }}
-                  className="py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs"
-                >
-                  ยินยอมทั้งคู่ 💕
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ===================== GAME OVER MODAL ===================== */}
-        {isGameOver && session && (
-          <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
-              <div className="inline-flex p-3 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                <Heart className="w-8 h-8 fill-rose-500" />
-              </div>
-
-              <div className="space-y-1">
-                <h3 className="text-2xl font-black text-white">ความทรงจำสุดโรแมนติก!</h3>
-                <p className="text-xs text-zinc-400">เล่นครบ {session.totalRounds} รอบเรียบร้อยแล้ว</p>
-              </div>
-
-              {session.syncScore.total > 0 && (
-                <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-1">
-                  <div className="text-xs font-bold text-zinc-400">คะแนนความรู้ใจ (Sync Rate)</div>
-                  <div className="text-2xl font-black text-rose-400">
-                    {Math.round((session.syncScore.matches / session.syncScore.total) * 100)}%
-                  </div>
-                  <div className="text-[11px] text-zinc-500">
-                    ทายใจตรงกัน {session.syncScore.matches} จาก {session.syncScore.total} ข้อ
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsGameOver(false);
-                    setIsSetup(true);
-                  }}
-                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs"
-                >
-                  ตั้งค่าใหม่
-                </button>
-                <Link
-                  href="/"
-                  className="flex-1 py-3 rounded-2xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs flex items-center justify-center"
-                >
-                  กลับหน้าหลัก
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Consent Modal */}
+        <ConsentDialog
+          isOpen={isConsentModalOpen}
+          onAccept={() => {
+            sounds.playClick();
+            setIsConsentModalOpen(false);
+          }}
+          onDecline={() => {
+            sounds.playClick();
+            setIsConsentModalOpen(false);
+            handleNextTurn();
+          }}
+        />
       </main>
     </div>
   );

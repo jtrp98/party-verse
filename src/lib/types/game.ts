@@ -1,5 +1,29 @@
 export type GameVibeLevel = 'CHILL' | 'FLIRTY' | 'SPICY' | 'NAUGHTY' | 'UNLEASHED';
 
+export type IntensityLevel = 1 | 2 | 3 | 4 | 5;
+
+export const INTENSITY_TO_VIBE: Record<IntensityLevel, GameVibeLevel> = {
+  1: 'CHILL',
+  2: 'FLIRTY',
+  3: 'SPICY',
+  4: 'NAUGHTY',
+  5: 'UNLEASHED',
+};
+
+export const VIBE_TO_INTENSITY: Record<GameVibeLevel, IntensityLevel> = {
+  CHILL: 1,
+  FLIRTY: 2,
+  SPICY: 3,
+  NAUGHTY: 4,
+  UNLEASHED: 5,
+};
+
+export interface SessionBoundaries {
+  allowPhysical: boolean;       // Consensual touch / skinship challenges
+  allowAlcohol: boolean;        // Drink penalties vs sober alternatives
+  allowExplicitTalk: boolean;   // 18+ sex talk and private questions
+}
+
 export type GameDifficulty = 'EASY' | 'HARD' | 'EXTREME';
 
 export type ProgressionPhase = 'WARM_UP' | 'BUILD_UP' | 'PEAK' | 'FINALE';
@@ -34,6 +58,9 @@ export interface PlayingCard {
   ruleDescription: string;
   ruleDetails?: string;
   triggersMiniGame?: boolean;
+  alternativeAction?: string;
+  requiresConsent?: boolean;
+  isPhysical?: boolean;
 }
 
 export interface GameEventLog {
@@ -64,6 +91,9 @@ export interface DoraemonSession extends BaseGameSession {
   gameId: 'doraemon';
   deck: PlayingCard[];
   drawnCards: PlayingCard[];
+  maxAllowedIntensity?: IntensityLevel;
+  currentAllowedIntensity?: IntensityLevel;
+  boundaries?: SessionBoundaries;
   activeRules: {
     questionMasterId?: string; // Player who holds Q
     princeId?: string;         // Player who holds J (can't talk to them)
