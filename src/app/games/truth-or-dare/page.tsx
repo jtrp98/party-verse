@@ -19,14 +19,14 @@ import { PlayerSetupModal } from '@/components/game/PlayerSetupModal';
 import { RandomSuspenseModal } from '@/components/game/RandomSuspenseModal';
 import { TRUTH_OR_DARE_DATABASE } from '@/lib/data/truthOrDareData';
 import { calculateRoundPhase } from '@/lib/engine/progressionEngine';
-import { getNextPlayerIndex, formatPromptWithPlayers } from '@/lib/engine/playerEngine';
+import { getNextPlayerIndex, createNewPlayer } from '@/lib/engine/playerEngine';
+import { selectNextTruthOrDare } from '@/lib/engine/challengeSelectionEngine';
 import {
   saveActiveSession,
   loadActiveSession,
   clearActiveSession,
   loadSavedPlayerNames,
 } from '@/lib/engine/sessionManager';
-import { createNewPlayer } from '@/lib/engine/playerEngine';
 import { sounds } from '@/lib/sound/webAudio';
 
 export default function TruthOrDarePage() {
@@ -133,34 +133,28 @@ export default function TruthOrDarePage() {
   const handleStartRandom = () => {
     if (!session) return;
     const actualType: 'TRUTH' | 'DARE' = Math.random() > 0.5 ? 'TRUTH' : 'DARE';
-
-    // Filter candidate items
-    let candidates = TRUTH_OR_DARE_DATABASE.filter(
-      (item) => item.level === session.level && item.type === actualType && !session.completedItems.includes(item.id)
-    );
-    if (candidates.length === 0) {
-      candidates = TRUTH_OR_DARE_DATABASE.filter(
-        (item) => item.level === session.level && item.type === actualType
-      );
-    }
-    if (candidates.length === 0) {
-      candidates = TRUTH_OR_DARE_DATABASE.filter((item) => item.type === actualType);
-    }
-
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
     const currentPlayer = session.players[session.currentPlayerIndex];
-    const formattedText = formatPromptWithPlayers(chosen.text, currentPlayer, session.players);
-    const itemWithFormattedText: TruthOrDareItem = {
-      ...chosen,
-      text: formattedText,
-    };
+
+    const selection = selectNextTruthOrDare({
+      database: TRUTH_OR_DARE_DATABASE,
+      completedItemIds: session.completedItems,
+      type: actualType,
+      level: session.level,
+      difficulty: session.difficulty,
+      phase: session.currentPhase,
+      lastCategory: activeItem?.category,
+      currentPlayer,
+      allPlayers: session.players,
+    });
+
+    if (!selection) return;
 
     setRandomTargetType(actualType);
-    setPendingRandomItem(itemWithFormattedText);
+    setPendingRandomItem(selection.item);
     setIsRandomModalOpen(true);
   };
 
-  const handleRandomComplete = (_chosenType?: 'TRUTH' | 'DARE') => {
+  const handleRandomComplete = () => {
     setIsRandomModalOpen(false);
     if (!session || !pendingRandomItem) return;
 
@@ -188,37 +182,27 @@ export default function TruthOrDarePage() {
     if (!session) return;
     sounds.playSuspenseRiser();
 
-    // Filter candidate items
-    let candidates = TRUTH_OR_DARE_DATABASE.filter(
-      (item) => item.level === session.level && item.type === type && !session.completedItems.includes(item.id)
-    );
-
-    // Fallback to all items in level
-    if (candidates.length === 0) {
-      candidates = TRUTH_OR_DARE_DATABASE.filter(
-        (item) => item.level === session.level && item.type === type
-      );
-    }
-
-    // Fallback to chill
-    if (candidates.length === 0) {
-      candidates = TRUTH_OR_DARE_DATABASE.filter((item) => item.type === type);
-    }
-
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
     const currentPlayer = session.players[session.currentPlayerIndex];
-    const formattedText = formatPromptWithPlayers(chosen.text, currentPlayer, session.players);
-    const itemWithFormattedText: TruthOrDareItem = {
-      ...chosen,
-      text: formattedText,
-    };
+    const selection = selectNextTruthOrDare({
+      database: TRUTH_OR_DARE_DATABASE,
+      completedItemIds: session.completedItems,
+      type,
+      level: session.level,
+      difficulty: session.difficulty,
+      phase: session.currentPhase,
+      lastCategory: activeItem?.category,
+      currentPlayer,
+      allPlayers: session.players,
+    });
+
+    if (!selection) return;
 
     setTimeout(() => {
       sounds.playCardFlip();
-      setActiveItem(itemWithFormattedText);
+      setActiveItem(selection.item);
 
-      if (chosen.timerSeconds) {
-        setCountdown(chosen.timerSeconds);
+      if (selection.item.timerSeconds) {
+        setCountdown(selection.item.timerSeconds);
         setIsTimerActive(true);
       } else {
         setCountdown(null);
@@ -227,8 +211,8 @@ export default function TruthOrDarePage() {
 
       setSession({
         ...session,
-        currentItem: itemWithFormattedText,
-        completedItems: [...session.completedItems, chosen.id],
+        currentItem: selection.item,
+        completedItems: selection.updatedCompletedIds,
       });
     }, 300);
   };
@@ -417,16 +401,39 @@ export default function TruthOrDarePage() {
             ) : (
               /* Display Active Question / Dare */
               <div className="bg-zinc-900 border-2 border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4">
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`px-3 py-1 rounded-full text-[11px] font-black tracking-wider ${
-                      activeItem.type === 'TRUTH'
-                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                        : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                    }`}
-                  >
-                    {activeItem.type === 'TRUTH' ? '❓ TRUTH (ความจริง)' : '🔥 DARE (ท้าทาย)'}
-                  </span>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className={`px-3 py-1 rounded-full text-[11px] font-black tracking-wider ${
+                        activeItem.type === 'TRUTH'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                      }`}
+                    >
+                      {activeItem.type === 'TRUTH' ? '❓ TRUTH (ความจริง)' : '🔥 DARE (ท้าทาย)'}
+                    </span>
+
+                    {activeItem.category && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                        {activeItem.category === 'CONFESSION' && '🤫 สารภาพความลับ'}
+                        {activeItem.category === 'WHO_LIKELY' && '👉 ใครมีแววสุด'}
+                        {activeItem.category === 'SOCIAL_DARE' && '⚡ ภารกิจในวง'}
+                        {activeItem.category === 'SPEED_CHALLENGE' && '⏱️ ประลองความไว'}
+                        {activeItem.category === 'ACTING' && '🎭 การแสดง'}
+                        {activeItem.category === 'MEMORY' && '🧠 ความทรงจำ'}
+                        {activeItem.category === 'TEAM_CHALLENGE' && '🤝 ร่วมมือกัน'}
+                        {activeItem.category === 'COMPETITION' && '⚔️ ดวลตัวต่อตัว'}
+                        {activeItem.category === 'RELATIONSHIP' && '💖 ความรัก'}
+                        {activeItem.category === 'WILDCARD' && '🎲 กฎพิเศษ'}
+                      </span>
+                    )}
+
+                    {activeItem.requiresConsent && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        🤝 ยินยอมทั้งสองฝ่าย
+                      </span>
+                    )}
+                  </div>
 
                   {countdown !== null && (
                     <div className="flex items-center gap-1.5 font-mono font-bold text-amber-400 text-xs bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/30">
@@ -445,7 +452,7 @@ export default function TruthOrDarePage() {
                 {/* Alternative Drink / Penalty */}
                 {activeItem.drinkAlternative && (
                   <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-amber-300 text-xs font-semibold text-center">
-                    🍺 หรือ {activeItem.drinkAlternative}
+                    🍺 ทางเลือก: {activeItem.drinkAlternative}
                   </div>
                 )}
               </div>

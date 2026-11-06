@@ -16,8 +16,15 @@ import {
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
-import { CoupleLevel, CoupleItem } from '@/lib/types/game';
+import { CoupleLevel, CoupleItem, CoupleSession } from '@/lib/types/game';
 import { COUPLE_DATABASE } from '@/lib/data/coupleData';
+import { selectNextCoupleChallenge } from '@/lib/engine/challengeSelectionEngine';
+import { calculateRoundPhase } from '@/lib/engine/progressionEngine';
+import {
+  saveActiveSession,
+  loadActiveSession,
+  clearActiveSession,
+} from '@/lib/engine/sessionManager';
 import { sounds } from '@/lib/sound/webAudio';
 
 export default function CoupleGamePage() {
@@ -32,6 +39,7 @@ export default function CoupleGamePage() {
   const [currentRound, setCurrentRound] = useState(1);
   const [syncMatches, setSyncMatches] = useState(0);
   const [syncTotal, setSyncTotal] = useState(0);
+  const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [currentItem, setCurrentItem] = useState<CoupleItem | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
@@ -41,12 +49,83 @@ export default function CoupleGamePage() {
   const [isDoubleDare, setIsDoubleDare] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
+  // Mount logic: Load existing session if present
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsMuted(sounds.getIsMuted());
+
+      const existing = loadActiveSession<CoupleSession>();
+      if (existing && existing.gameId === 'couples' && existing.status !== 'FINISHED') {
+        setPartnerA(existing.partnerAName || 'ที่รัก');
+        setPartnerB(existing.partnerBName || 'ตัวเอง');
+        setSelectedLevel(existing.coupleLevel || 'SPICY');
+        setTotalRounds(existing.totalRounds || 12);
+        setCurrentRound(existing.currentRound || 1);
+        setSyncMatches(existing.syncMatches || 0);
+        setSyncTotal(existing.syncTotal || 0);
+        setCompletedItems(existing.completedItems || []);
+        if (existing.currentItem) {
+          setCurrentItem(existing.currentItem);
+        }
+        setIsSetup(false);
+      }
     }, 0);
     return () => clearTimeout(timer);
   }, []);
+
+  // Save session sync to localStorage
+  useEffect(() => {
+    if (!isSetup) {
+      const session: CoupleSession = {
+        gameId: 'couples',
+        sessionId: 'couple_session',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        players: [
+          {
+            id: 'partner_a',
+            name: partnerA,
+            avatarColor: 'bg-rose-500 text-rose-950 border-rose-300',
+            stats: { drinksDrunk: 0, miniGamesWon: 0, jCards: 0, qCards: 0, kCards: 0, bathroomPasses: 0, activeBuffs: [] },
+          },
+          {
+            id: 'partner_b',
+            name: partnerB,
+            avatarColor: 'bg-amber-500 text-amber-950 border-amber-300',
+            stats: { drinksDrunk: 0, miniGamesWon: 0, jCards: 0, qCards: 0, kCards: 0, bathroomPasses: 0, activeBuffs: [] },
+          },
+        ],
+        currentPlayerIndex: currentRound % 2 === 1 ? 0 : 1,
+        level: selectedLevel === 'SWEET' ? 'CHILL' : selectedLevel === 'SPICY' ? 'SPICY' : 'UNLEASHED',
+        difficulty: 'EASY',
+        currentPhase: calculateRoundPhase(currentRound, totalRounds),
+        status: isGameOver ? 'FINISHED' : 'PLAYING',
+        history: [],
+        coupleLevel: selectedLevel,
+        partnerAName: partnerA,
+        partnerBName: partnerB,
+        currentRound,
+        totalRounds,
+        syncMatches,
+        syncTotal,
+        completedItems,
+        currentItem: currentItem || undefined,
+      };
+      saveActiveSession(session);
+    }
+  }, [
+    isSetup,
+    partnerA,
+    partnerB,
+    selectedLevel,
+    currentRound,
+    totalRounds,
+    syncMatches,
+    syncTotal,
+    completedItems,
+    currentItem,
+    isGameOver,
+  ]);
 
   // Timer Tick
   useEffect(() => {
@@ -98,32 +177,43 @@ export default function CoupleGamePage() {
     setCurrentRound(1);
     setSyncMatches(0);
     setSyncTotal(0);
+    setCompletedItems([]);
     setIsGameOver(false);
-    drawNextCard(1);
+    drawNextCard(1, []);
   };
 
-  // Draw Next Item
-  const drawNextCard = (_round: number) => {
+  // Draw Next Item with Smart Selection Engine
+  const drawNextCard = (round: number, currentCompleted: string[] = completedItems) => {
     sounds.playSuspenseRiser();
     setIsDoubleDare(false);
     setIsSyncCountingDown(false);
     setSyncCount(3);
 
-    // Candidates in level
-    const candidates = COUPLE_DATABASE.filter((c) => c.level === selectedLevel);
-    const chosen = candidates[Math.floor(Math.random() * candidates.length)] || COUPLE_DATABASE[0];
+    const selection = selectNextCoupleChallenge({
+      database: COUPLE_DATABASE,
+      completedItemIds: currentCompleted,
+      level: selectedLevel,
+      partnerAName: partnerA,
+      partnerBName: partnerB,
+      phase: calculateRoundPhase(round, totalRounds),
+      lastCategory: currentItem?.category,
+    });
+
+    if (!selection) return;
 
     setTimeout(() => {
       sounds.playCardFlip();
-      setCurrentItem(chosen);
-      if (chosen.type === 'SYNC') {
+      setCurrentItem(selection.item);
+      setCompletedItems(selection.updatedCompletedIds);
+
+      if (selection.item.type === 'SYNC') {
         setSyncTotal((prev) => prev + 1);
         setIsSyncCountingDown(true);
         setSyncCount(3);
         setCountdown(null);
         setIsTimerRunning(false);
-      } else if (chosen.timerSeconds) {
-        setCountdown(chosen.timerSeconds);
+      } else if (selection.item.timerSeconds) {
+        setCountdown(selection.item.timerSeconds);
         setIsTimerRunning(true);
       } else {
         setCountdown(null);
@@ -144,7 +234,7 @@ export default function CoupleGamePage() {
       return;
     }
     setCurrentRound(nextRound);
-    drawNextCard(nextRound);
+    drawNextCard(nextRound, completedItems);
   };
 
   // Sync Result Decision
@@ -165,9 +255,11 @@ export default function CoupleGamePage() {
   const handleRestart = () => {
     if (confirm('คุณต้องการเริ่มเกมใหม่ใช่หรือไม่?')) {
       sounds.playClick();
+      clearActiveSession();
       setIsSetup(true);
       setIsGameOver(false);
       setCurrentItem(null);
+      setCompletedItems([]);
     }
   };
 
@@ -295,7 +387,7 @@ export default function CoupleGamePage() {
                   id: 'SPICY' as CoupleLevel,
                   icon: '🔥',
                   title: 'SPICY (ร้อนแรง & สกินชิพใกล้ชิด 18+)',
-                  desc: 'นั่งตักสบตา ซุกไซ้ซอกคอ ปลดกระดุม จูบดูดดื่ม และคำถามจุดเสียวที่ทำให้ใจสั่น',
+                  desc: 'ซุกไซ้ซอกคอ ปลดกระดุม จูบดูดดื่ม และคำถามจุดเสียวที่ทำให้ใจสั่น',
                   color: 'border-amber-400 text-amber-300',
                 },
                 {
@@ -411,21 +503,41 @@ export default function CoupleGamePage() {
           {/* Active Card */}
           <div className="my-auto py-2">
             <div className="bg-gradient-to-b from-zinc-900 via-zinc-900 to-slate-950 border-2 border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-4 relative overflow-hidden">
-              {/* Type Badge */}
-              <div className="flex items-center justify-between">
-                <span
-                  className={`px-3 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1 ${
-                    currentItem.type === 'SYNC'
-                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                      : currentItem.type === 'TRUTH'
-                      ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                      : 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
-                  }`}
-                >
-                  {currentItem.type === 'SYNC' && '⚡ SYNC 3-2-1 วัดใจ'}
-                  {currentItem.type === 'TRUTH' && '❓ DEEP TRUTH เปิดใจ'}
-                  {currentItem.type === 'DARE' && '🔥 SPICY DARE ภารกิจรัก'}
-                </span>
+              {/* Type Badge & Category */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span
+                    className={`px-3 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1 ${
+                      currentItem.type === 'SYNC'
+                        ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                        : currentItem.type === 'TRUTH'
+                        ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                        : 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                    }`}
+                  >
+                    {currentItem.type === 'SYNC' && '⚡ SYNC 3-2-1 วัดใจ'}
+                    {currentItem.type === 'TRUTH' && '❓ DEEP TRUTH เปิดใจ'}
+                    {currentItem.type === 'DARE' && '🔥 SPICY DARE ภารกิจรัก'}
+                  </span>
+
+                  {currentItem.category && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700">
+                      {currentItem.category === 'MEMORIES' && '📖 ความทรงจำ'}
+                      {currentItem.category === 'HABITS' && '🧸 นิสัยน่ารัก'}
+                      {currentItem.category === 'COMPATIBILITY' && '🎯 ความเข้ากัน'}
+                      {currentItem.category === 'ROMANCE' && '💖 โรแมนติก'}
+                      {currentItem.category === 'INTIMACY' && '💋 สกินชิพ'}
+                      {currentItem.category === 'SPICY_SECRETS' && '🔥 ความลับแซ่บ'}
+                      {currentItem.category === 'PLAYFUL_CHALLENGE' && '🎲 ท้าทาย'}
+                    </span>
+                  )}
+
+                  {currentItem.requiresConsent && (
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      🤝 ยินยอมทั้งสองฝ่าย
+                    </span>
+                  )}
+                </div>
 
                 <span className="text-[10px] text-zinc-500 font-bold uppercase">
                   {selectedLevel}
@@ -447,6 +559,18 @@ export default function CoupleGamePage() {
                 <div className="p-4 rounded-2xl bg-zinc-950/80 border border-amber-500/40 text-center space-y-1 animate-pulse">
                   <p className="text-xs text-amber-400 font-bold">เตรียมนับแล้วตอบพร้อมกัน!</p>
                   <span className="text-4xl font-black text-white font-mono">{syncCount}</span>
+                </div>
+              )}
+
+              {/* Options for SYNC */}
+              {currentItem.type === 'SYNC' && currentItem.options && !isSyncCountingDown && (
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-amber-300">
+                    A: {currentItem.options[0]}
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-rose-300">
+                    B: {currentItem.options[1]}
+                  </div>
                 </div>
               )}
 
@@ -515,7 +639,7 @@ export default function CoupleGamePage() {
             <div className="flex justify-between px-2 pt-1 text-[11px] text-zinc-500 font-bold">
               <button
                 type="button"
-                onClick={() => drawNextCard(currentRound)}
+                onClick={() => drawNextCard(currentRound, completedItems)}
                 className="hover:text-zinc-300"
               >
                 ข้าม / เปลี่ยนคำถาม

@@ -4,9 +4,10 @@ import {
   ProgressionPhase,
   Player,
   ActiveMiniGameInstance,
+  MiniGame,
 } from '../types/game';
 import { MINI_GAMES_DATABASE } from '../data/miniGamesData';
-import { pickPairOfPlayers, pickGroupOfPlayers } from './playerEngine';
+import { pickPairOfPlayers, pickGroupOfPlayers, formatPromptWithPlayers } from './playerEngine';
 
 export interface MiniGamePickerParams {
   level: GameVibeLevel;
@@ -15,53 +16,88 @@ export interface MiniGamePickerParams {
   players: Player[];
   currentPlayerIndex: number;
   recentMiniGameIds?: string[];
+  database?: MiniGame[];
 }
 
 /**
- * Filter and select appropriate mini-game avoiding immediate repetitions
+ * Filter and select appropriate mini-game avoiding immediate repetitions,
+ * respecting seating positions and weighted progression.
  */
 export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameInstance | null {
-  const { level, difficulty, phase, players, currentPlayerIndex, recentMiniGameIds = [] } = params;
+  const {
+    level,
+    difficulty,
+    phase,
+    players,
+    currentPlayerIndex,
+    recentMiniGameIds = [],
+    database = MINI_GAMES_DATABASE,
+  } = params;
   const playerCount = players.length;
 
-  // 1. Filter by Level and player count capacity
-  let eligible = MINI_GAMES_DATABASE.filter((mg) => {
-    // Level must match or be equal/lower tier
+  if (playerCount === 0 || database.length === 0) return null;
+
+  // 1. Filter by Level and minimum player count requirement
+  let eligible = database.filter((mg) => {
     const matchesLevel = mg.level === level;
     const matchesPlayers = mg.minPlayers <= playerCount;
     return matchesLevel && matchesPlayers;
   });
 
-  // If no exact level match, allow fallback within CHILL
+  // Fallback: If no exact level match, allow fallback to CHILL or lower
   if (eligible.length === 0) {
-    eligible = MINI_GAMES_DATABASE.filter((mg) => mg.level === 'CHILL' && mg.minPlayers <= playerCount);
+    eligible = database.filter((mg) => mg.minPlayers <= playerCount);
   }
 
   if (eligible.length === 0) {
     return null;
   }
 
-  // 2. Filter out recent to avoid immediate duplicates
+  // 2. Filter out recently played games to avoid immediate repetition
   const notRecent = eligible.filter((mg) => !recentMiniGameIds.includes(mg.id));
   const pool = notRecent.length > 0 ? notRecent : eligible;
 
-  // 3. Score candidates by matching phase & difficulty
+  // 3. Weighted scoring based on phase and difficulty
   const scored = pool.map((mg) => {
-    let score = 1;
-    if (mg.phase === phase) score += 3;
-    if (mg.difficulty === difficulty) score += 2;
-    return { game: mg, score };
+    let weight = 1;
+    if (mg.phase === phase) weight += 3;
+    if (mg.difficulty === difficulty) weight += 2;
+    return { game: mg, weight };
   });
 
-  // Weighted random pick from top candidates
-  scored.sort((a, b) => b.score - a.score);
-  const topCandidates = scored.slice(0, Math.min(3, scored.length));
-  const chosenGame = topCandidates[Math.floor(Math.random() * topCandidates.length)].game;
+  // Weighted random pick
+  const totalWeight = scored.reduce((acc, curr) => acc + curr.weight, 0);
+  let randomVal = Math.random() * totalWeight;
+  let chosenGame = scored[0].game;
 
-  // 4. Assign participants according to requirement
+  for (const item of scored) {
+    if (randomVal <= item.weight) {
+      chosenGame = item.game;
+      break;
+    }
+    randomVal -= item.weight;
+  }
+
+  // 4. Resolve Participants respecting relative seating directions
+  const n = players.length;
   const currentPlayer = players[currentPlayerIndex] || players[0];
   let participantIds: string[] = [];
   const roleDescriptions: { [playerId: string]: string } = {};
+
+  // Check if game targets specific relative neighbor
+  const instructionsJoined = chosenGame.instructions.join(' ') + ' ' + chosenGame.description;
+  const targetsRight =
+    chosenGame.targetPlayerRole === 'RIGHT' ||
+    instructionsJoined.includes('{RIGHT_PLAYER}') ||
+    instructionsJoined.includes('ข้างขวา');
+  const targetsLeft =
+    chosenGame.targetPlayerRole === 'LEFT' ||
+    instructionsJoined.includes('{LEFT_PLAYER}') ||
+    instructionsJoined.includes('ข้างซ้าย');
+  const targetsOpposite =
+    chosenGame.targetPlayerRole === 'OPPOSITE' ||
+    instructionsJoined.includes('{OPPOSITE_PLAYER}') ||
+    instructionsJoined.includes('ตรงข้าม');
 
   switch (chosenGame.playerRequirement) {
     case 'SOLO':
@@ -71,14 +107,41 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
 
     case 'VERSUS':
     case 'PAIR': {
-      const pair = pickPairOfPlayers(players, currentPlayer.id);
-      if (pair) {
-        participantIds = [pair[0].id, pair[1].id];
-        roleDescriptions[pair[0].id] = 'ผู้ท้าชิงฝ่ายที่ 1';
-        roleDescriptions[pair[1].id] = 'ผู้ท้าชิงฝ่ายที่ 2';
+      let secondaryPlayer: Player;
+      if (targetsRight && n > 1) {
+        secondaryPlayer = players[(currentPlayerIndex + 1) % n];
+      } else if (targetsLeft && n > 1) {
+        secondaryPlayer = players[(currentPlayerIndex - 1 + n) % n];
+      } else if (targetsOpposite && n > 2) {
+        secondaryPlayer = players[(currentPlayerIndex + Math.floor(n / 2)) % n];
       } else {
-        participantIds = [currentPlayer.id];
+        const pair = pickPairOfPlayers(players, currentPlayer.id);
+        secondaryPlayer = pair ? pair[1] : currentPlayer;
       }
+
+      participantIds = [currentPlayer.id, secondaryPlayer.id];
+      if (chosenGame.playerRequirement === 'VERSUS') {
+        roleDescriptions[currentPlayer.id] = 'ผู้ท้าชิงคนที่ 1';
+        roleDescriptions[secondaryPlayer.id] = 'ผู้ท้าชิงคนที่ 2';
+      } else {
+        roleDescriptions[currentPlayer.id] = 'ผู้เล่นหลัก';
+        roleDescriptions[secondaryPlayer.id] = 'คู่หูร่วมภารกิจ';
+      }
+      break;
+    }
+
+    case 'TEAM': {
+      // Split players into 2 balanced teams
+      const half = Math.ceil(n / 2);
+      const team1 = players.slice(0, half);
+      const team2 = players.slice(half);
+      participantIds = players.map((p) => p.id);
+      team1.forEach((p) => {
+        roleDescriptions[p.id] = 'ทีมสีส้ม';
+      });
+      team2.forEach((p) => {
+        roleDescriptions[p.id] = 'ทีมสีน้ำเงิน';
+      });
       break;
     }
 
@@ -86,17 +149,37 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
       const groupCount = Math.max(2, Math.min(3, players.length));
       const group = pickGroupOfPlayers(players, groupCount);
       participantIds = group.map((p) => p.id);
+      participantIds.forEach((id, idx) => {
+        roleDescriptions[id] = `สมาชิกกลุ่มคนที่ ${idx + 1}`;
+      });
       break;
     }
 
     case 'ALL':
     default:
       participantIds = players.map((p) => p.id);
+      participantIds.forEach((id) => {
+        if (id === currentPlayer.id) {
+          roleDescriptions[id] = 'ผู้นำรอบนี้';
+        } else {
+          roleDescriptions[id] = 'ผู้เล่นร่วมวง';
+        }
+      });
       break;
   }
 
+  // 5. Format prompt tokens inside game description and instructions
+  const formattedDescription = formatPromptWithPlayers(chosenGame.description, currentPlayer, players);
+  const formattedInstructions = chosenGame.instructions.map((inst) =>
+    formatPromptWithPlayers(inst, currentPlayer, players)
+  );
+
   return {
-    game: chosenGame,
+    game: {
+      ...chosenGame,
+      description: formattedDescription,
+      instructions: formattedInstructions,
+    },
     participantIds,
     roleDescriptions,
   };

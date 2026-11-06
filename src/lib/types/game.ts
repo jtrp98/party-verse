@@ -73,6 +73,20 @@ export interface DoraemonSession extends BaseGameSession {
   };
 }
 
+export type TruthOrDareCategory =
+  | 'CONFESSION'
+  | 'WHO_LIKELY'
+  | 'SOCIAL_DARE'
+  | 'SPEED_CHALLENGE'
+  | 'ACTING'
+  | 'MEMORY'
+  | 'TEAM_CHALLENGE'
+  | 'COMPETITION'
+  | 'RELATIONSHIP'
+  | 'WILDCARD';
+
+export type RelativePlayerPosition = 'RIGHT' | 'LEFT' | 'OPPOSITE' | 'RANDOM_OTHER' | 'ANY';
+
 export interface TruthOrDareItem {
   id: string;
   type: 'TRUTH' | 'DARE';
@@ -82,7 +96,10 @@ export interface TruthOrDareItem {
   text: string;
   drinkAlternative?: string;
   timerSeconds?: number;
-  category?: string;
+  category?: TruthOrDareCategory;
+  requiresConsent?: boolean;
+  targetPlayerRole?: RelativePlayerPosition;
+  tags?: string[];
 }
 
 export interface TruthOrDareSession extends BaseGameSession {
@@ -94,6 +111,17 @@ export interface TruthOrDareSession extends BaseGameSession {
 }
 
 export type MiniGameType = 'SOLO' | 'PAIR' | 'GROUP' | 'ALL' | 'TEAM' | 'VERSUS';
+
+export type MiniGameCategory =
+  | 'SPEED_REACTION'
+  | 'WORD_CHAIN'
+  | 'CATEGORY_RACE'
+  | 'ACTING_GUESSING'
+  | 'MEMORY_OBSERVATION'
+  | 'GROUP_VOTING'
+  | 'VERSUS_DUEL'
+  | 'BLUFFING_IMPROV'
+  | 'PARTY_CLASSIC';
 
 export interface MiniGame {
   id: string;
@@ -107,6 +135,10 @@ export interface MiniGame {
   instructions: string[];
   durationSeconds?: number;
   penaltyText: string;
+  category?: MiniGameCategory;
+  requiresConsent?: boolean;
+  targetPlayerRole?: RelativePlayerPosition;
+  tags?: string[];
 }
 
 export interface ActiveMiniGameInstance {
@@ -118,6 +150,15 @@ export interface ActiveMiniGameInstance {
 export type CoupleLevel = 'SWEET' | 'SPICY' | 'WILD';
 export type CoupleQuestionType = 'SYNC' | 'TRUTH' | 'DARE';
 
+export type CoupleCategory =
+  | 'MEMORIES'
+  | 'HABITS'
+  | 'COMPATIBILITY'
+  | 'ROMANCE'
+  | 'INTIMACY'
+  | 'SPICY_SECRETS'
+  | 'PLAYFUL_CHALLENGE';
+
 export interface CoupleItem {
   id: string;
   type: CoupleQuestionType;
@@ -127,6 +168,11 @@ export interface CoupleItem {
   options?: [string, string];
   timerSeconds?: number;
   penaltyText: string;
+  category?: CoupleCategory;
+  difficulty?: GameDifficulty;
+  phase?: ProgressionPhase;
+  requiresConsent?: boolean;
+  tags?: string[];
 }
 
 export interface CoupleSession extends BaseGameSession {

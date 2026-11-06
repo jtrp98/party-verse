@@ -198,12 +198,17 @@ export default function DoraemonGamePage() {
     // Check if triggers mini-game
     if (card.triggersMiniGame) {
       setTimeout(() => {
+        const recentMiniGameIds = session.history
+          .filter((h) => h.type === 'MINI_GAME' && h.details)
+          .map((h) => h.details as string);
+
         const miniGame = pickNextMiniGame({
           level: session.level,
           difficulty: session.difficulty,
           phase: nextPhase,
           players: updatedPlayers,
           currentPlayerIndex: session.currentPlayerIndex,
+          recentMiniGameIds,
         });
         if (miniGame) {
           setActiveMiniGame(miniGame);
@@ -442,9 +447,51 @@ export default function DoraemonGamePage() {
           instance={activeMiniGame}
           players={session.players}
           onComplete={() => {
+            if (activeMiniGame) {
+              setSession((prev) => {
+                if (!prev) return null;
+                const activePlayer = prev.players[prev.currentPlayerIndex] || prev.players[0];
+                return {
+                  ...prev,
+                  history: [
+                    ...prev.history,
+                    {
+                      id: `log_${Date.now()}`,
+                      timestamp: Date.now(),
+                      playerId: activePlayer ? activePlayer.id : 'system',
+                      playerName: activePlayer ? activePlayer.name : 'มินิเกม',
+                      type: 'MINI_GAME',
+                      summary: `เล่นมินิเกม: ${activeMiniGame.game.title}`,
+                      details: activeMiniGame.game.id,
+                    },
+                  ],
+                };
+              });
+            }
             setActiveMiniGame(null);
           }}
           onSkip={() => {
+            if (activeMiniGame) {
+              setSession((prev) => {
+                if (!prev) return null;
+                const activePlayer = prev.players[prev.currentPlayerIndex] || prev.players[0];
+                return {
+                  ...prev,
+                  history: [
+                    ...prev.history,
+                    {
+                      id: `log_${Date.now()}`,
+                      timestamp: Date.now(),
+                      playerId: activePlayer ? activePlayer.id : 'system',
+                      playerName: activePlayer ? activePlayer.name : 'มินิเกม',
+                      type: 'MINI_GAME',
+                      summary: `ข้ามมินิเกม: ${activeMiniGame.game.title}`,
+                      details: activeMiniGame.game.id,
+                    },
+                  ],
+                };
+              });
+            }
             setActiveMiniGame(null);
           }}
         />

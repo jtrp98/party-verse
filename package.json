@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "bun run test-engines.ts"
+    "test": "bun run test-engines.ts && bun run tests/database-integrity.test.ts && bun run tests/selection-engine.test.ts"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

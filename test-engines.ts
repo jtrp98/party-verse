@@ -81,6 +81,20 @@ const pointOfDoom = MINI_GAMES_DATABASE.find(g => g.id === 'chill_point_of_doom'
 console.assert(Boolean(pointOfDoom), 'Must contain Point of Doom game');
 console.log(`✓ Point of Doom (ชี้หน้ามรณะ): PASS`);
 
+const miniRes = pickNextMiniGame({
+  level: 'CHILL',
+  difficulty: 'EASY',
+  phase: 'WARM_UP',
+  players,
+  currentPlayerIndex: 0,
+});
+console.assert(Boolean(miniRes), 'Mini game pick must succeed');
+const updatedStats = updatePlayerStat(players, players[0].id, 'drinksDrunk', 1);
+console.assert(updatedStats[0].stats.drinksDrunk === 1, 'Player stat update must succeed');
+const pairRes = pickPairOfPlayers(players, players[0].id);
+console.assert(Boolean(pairRes && pairRes.length === 2), 'Player pair pick must succeed');
+console.log(`✓ pickNextMiniGame, updatePlayerStat & pickPairOfPlayers: PASS`);
+
 // 5. Truth or Dare Database Check across 5 Levels
 console.log('\n--- 5. Truth or Dare Database (5 Levels) ---');
 const levels = ['CHILL', 'FLIRTY', 'SPICY', 'NAUGHTY', 'UNLEASHED'] as const;
