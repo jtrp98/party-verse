@@ -181,6 +181,10 @@ class SoundManager {
     osc.stop(now + 0.12);
   }
 
+  public playFlip() {
+    this.playCardFlip();
+  }
+
   /**
    * Card shuffle flutter sound
    */

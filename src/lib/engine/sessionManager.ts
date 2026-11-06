@@ -1,9 +1,7 @@
-import { BaseGameSession } from '../types/game';
-
 const SESSION_STORAGE_KEY = 'partyverse_active_session';
 const SAVED_PLAYERS_KEY = 'partyverse_saved_players';
 
-export function saveActiveSession<T extends BaseGameSession>(session: T): void {
+export function saveActiveSession<T extends object>(session: T): void {
   if (typeof window === 'undefined') return;
   try {
     const serialized = JSON.stringify({
@@ -16,7 +14,7 @@ export function saveActiveSession<T extends BaseGameSession>(session: T): void {
   }
 }
 
-export function loadActiveSession<T extends BaseGameSession>(): T | null {
+export function loadActiveSession<T extends object = Record<string, unknown>>(): T | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
