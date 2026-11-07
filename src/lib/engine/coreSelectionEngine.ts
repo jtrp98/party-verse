@@ -1,16 +1,22 @@
 import {
   UnifiedChallenge,
   GameMode,
+  ChallengeType,
   IntensityLevel,
   RelationshipStage,
+  IntimacyLevel,
   GamePhase,
   SessionBoundaries,
   Player,
+  ContentRating,
+  NormalPack,
+  AreaType,
 } from '../types/redesign';
 
 export interface SelectionCriteria {
   pool: UnifiedChallenge[];
   mode: GameMode;
+  preferredType?: ChallengeType;
   currentPermittedIntensity: IntensityLevel;
   maxAllowedIntensity: IntensityLevel;
   currentPhase: GamePhase;
@@ -18,6 +24,11 @@ export interface SelectionCriteria {
   completedIds: string[];
   playerCount: number;
   relationshipStage?: RelationshipStage;
+  intimacyLevel?: IntimacyLevel;
+  rating?: ContentRating;
+  normalPack?: NormalPack;
+  areaType?: AreaType;
+  optInPlayerIds?: string[];
   lastCategory?: string;
   currentPlayer?: Player;
   allPlayers?: Player[];
@@ -46,35 +57,63 @@ export function filterEligibleChallenges(
     boundaries,
     playerCount,
     relationshipStage,
+    intimacyLevel,
+    rating,
+    normalPack,
+    areaType,
+    optInPlayerIds,
   } = criteria;
 
   return pool.filter((item) => {
     // 1. Mode Gate
     if (item.mode !== mode) return false;
 
-    // 2. Hard Intensity Gate: Never exceed current permitted intensity or session ceiling
+    // 2. Rating Gate: NORMAL mode strictly forbids adult/NSFW content and 18+ topics
+    if (rating === 'NORMAL') {
+      if (item.rating === 'NSFW') return false;
+      if (item.intensity >= 3) return false;
+      if (item.adultTopic && item.adultTopic !== 'GENERAL') return false;
+      if (normalPack && item.normalPack && item.normalPack !== normalPack) return false;
+    }
+
+    // 3. Hard Intensity Gate: Never exceed current permitted intensity or session ceiling
     if (item.intensity > currentPermittedIntensity) return false;
     if (item.intensity > maxAllowedIntensity) return false;
 
-    // 3. Couple Mode: Hard Relationship Stage Gate
+    // 4. Couple Mode: Relationship Stage & Intimacy Level Gate
     if (mode === 'COUPLE') {
-      if (!relationshipStage) return false;
-      if (item.relationshipStages && !item.relationshipStages.includes(relationshipStage)) {
+      if (intimacyLevel && item.intimacyLevel && item.intimacyLevel > intimacyLevel) {
+        return false;
+      }
+      if (relationshipStage && item.relationshipStages && !item.relationshipStages.includes(relationshipStage)) {
         return false;
       }
     }
 
-    // 4. Boundary Gate: Physical touch
+    // 5. Area Gate: Challenges requiring privacy can ONLY be opened in private areas
+    if (areaType === 'PUBLIC' && item.requiresPrivacy) {
+      return false;
+    }
+
+    // 6. Opt-in Pool Gate: Multi-person NSFW challenges require participating players to be in opt-in pool
+    if (rating === 'NSFW' && item.participantCount && item.participantCount >= 2 && optInPlayerIds) {
+      // Need at least participantCount players in opt-in pool
+      if (optInPlayerIds.length < item.participantCount) {
+        return false;
+      }
+    }
+
+    // 7. Boundary Gate: Physical touch
     if (!boundaries.allowPhysical && item.isPhysical) {
       return false;
     }
 
-    // 5. Boundary Gate: Explicit adult talk (intensity 3+)
+    // 8. Boundary Gate: Explicit adult talk (intensity 3+)
     if (!boundaries.allowExplicitTalk && item.intensity >= 3) {
       return false;
     }
 
-    // 6. Player Count Gate
+    // 9. Player Count Gate
     if (playerCount < item.minPlayers) return false;
     if (item.maxPlayers && playerCount > item.maxPlayers) return false;
 
@@ -93,10 +132,11 @@ export function formatChallengeTokens(
     allPlayers?: Player[];
     partnerAName?: string;
     partnerBName?: string;
+    optInPlayerIds?: string[];
   }
 ): string {
   let text = rawText;
-  const { currentPlayer, allPlayers = [], partnerAName, partnerBName } = options;
+  const { currentPlayer, allPlayers = [], partnerAName, partnerBName, optInPlayerIds } = options;
 
   if (partnerAName) {
     text = text.replace(/\{PARTNER_A\}/g, partnerAName);
@@ -118,10 +158,17 @@ export function formatChallengeTokens(
     const nextPlayer = allPlayers[(currentIndex + 1) % allPlayers.length];
     text = text.replace(/\{NEXT_PLAYER\}/g, nextPlayer.name);
 
-    // Target player / Random other
-    const otherPlayers = allPlayers.filter((p) => p.id !== currentPlayer?.id);
-    const targetPlayer = otherPlayers.length > 0
-      ? otherPlayers[Math.floor(Math.random() * otherPlayers.length)]
+    // Target player / Random other - prioritize opt-in pool if available
+    let eligibleOthers = allPlayers.filter((p) => p.id !== currentPlayer?.id);
+    if (optInPlayerIds && optInPlayerIds.length > 0) {
+      const optInOthers = eligibleOthers.filter((p) => optInPlayerIds.includes(p.id));
+      if (optInOthers.length > 0) {
+        eligibleOthers = optInOthers;
+      }
+    }
+
+    const targetPlayer = eligibleOthers.length > 0
+      ? eligibleOthers[Math.floor(Math.random() * eligibleOthers.length)]
       : (allPlayers[0] || { name: 'เพื่อน' });
 
     text = text.replace(/\{TARGET_PLAYER\}/g, targetPlayer.name);
@@ -148,13 +195,38 @@ export function selectNextUnifiedChallenge(criteria: SelectionCriteria): Selecti
   } = criteria;
 
   // 1. Apply hard eligibility filtering
-  const eligiblePool = filterEligibleChallenges(pool, criteria);
-  if (eligiblePool.length === 0) {
-    // If the pool is empty even under strict gates, search for the safest lower-intensity item in the same mode
+  const baseEligiblePool = filterEligibleChallenges(pool, criteria);
+  if (baseEligiblePool.length === 0) {
+    // If the pool is empty even under strict gates, search for the safest lower-intensity item in the same mode and relationship stage
     const emergencySafePool = pool.filter(
-      (c) => c.mode === criteria.mode && c.intensity <= 1 && (!c.isPhysical || criteria.boundaries.allowPhysical)
+      (c) =>
+        c.mode === criteria.mode &&
+        c.intensity <= 1 &&
+        (criteria.rating !== 'NORMAL' || c.rating !== 'NSFW') &&
+        (!criteria.relationshipStage || !c.relationshipStages || c.relationshipStages.includes(criteria.relationshipStage)) &&
+        (!c.isPhysical || criteria.boundaries.allowPhysical) &&
+        (criteria.boundaries.allowExplicitTalk || c.intensity < 3)
     );
-    if (emergencySafePool.length === 0) return null;
+    if (emergencySafePool.length === 0) {
+      return {
+        challenge: {
+          id: `safe_pass_${Date.now()}`,
+          mode: criteria.mode,
+          type: 'CHALLENGE',
+          title: 'ผ่านรอบนี้ (Pass)',
+          content: 'ไม่มีโจทย์ที่เข้าเงื่อนไขในรอบนี้ ผู้เล่นสามารถขอ Pass เพื่อส่งมือถือให้คนถัดไปได้ทันที',
+          intensity: 1,
+          categories: ['PASS'],
+          minPlayers: criteria.playerCount,
+          requiresConsent: false,
+          isPhysical: false,
+          alternativeAction: 'ส่งต่อให้ผู้เล่นคนถัดไป',
+          rating: criteria.rating || 'NORMAL',
+        },
+        updatedCompletedIds: completedIds,
+        isNewCycle: false,
+      };
+    }
     const fallbackItem = emergencySafePool[Math.floor(Math.random() * emergencySafePool.length)];
     return {
       challenge: {
@@ -164,12 +236,19 @@ export function selectNextUnifiedChallenge(criteria: SelectionCriteria): Selecti
           allPlayers,
           partnerAName,
           partnerBName,
+          optInPlayerIds: criteria.optInPlayerIds,
         }),
       },
       updatedCompletedIds: [...completedIds, fallbackItem.id],
       isNewCycle: true,
     };
   }
+
+  // 1.1 Apply preferred type filtering if requested and available
+  const typeFilteredPool = criteria.preferredType
+    ? baseEligiblePool.filter((item) => item.type === criteria.preferredType)
+    : [];
+  const eligiblePool = typeFilteredPool.length > 0 ? typeFilteredPool : baseEligiblePool;
 
   // 2. Identify unplayed items
   const unplayed = eligiblePool.filter((item) => !completedIds.includes(item.id));
@@ -192,6 +271,12 @@ export function selectNextUnifiedChallenge(criteria: SelectionCriteria): Selecti
       candidatePool = eligiblePool;
     }
     updatedCompletedIds = [...recentCooldownIds];
+  }
+
+  // 2.1 Prioritize current target permitted intensity if available in candidate pool
+  const exactIntensityPool = candidatePool.filter((item) => item.intensity === currentPermittedIntensity);
+  if (exactIntensityPool.length > 0) {
+    candidatePool = exactIntensityPool;
   }
 
   // 3. Weight candidates: Phase alignment, Category variety, Pacing match
@@ -245,6 +330,7 @@ export function selectNextUnifiedChallenge(criteria: SelectionCriteria): Selecti
     allPlayers,
     partnerAName,
     partnerBName,
+    optInPlayerIds: criteria.optInPlayerIds,
   });
 
   const formattedAlternative = selected.alternativeAction
@@ -253,6 +339,7 @@ export function selectNextUnifiedChallenge(criteria: SelectionCriteria): Selecti
         allPlayers,
         partnerAName,
         partnerBName,
+        optInPlayerIds: criteria.optInPlayerIds,
       })
     : undefined;
 

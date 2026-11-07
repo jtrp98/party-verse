@@ -10,3 +10,7 @@ export * from './AccessibilityModal';
 export * from './GameHeader';
 export * from './SyncCountdown';
 export * from './ConsentDialog';
+export * from './TruthOrDareChoiceSelector';
+export * from './SocialVoteWidget';
+export * from './SecretRevealWidget';
+export * from './SafetyHUD';

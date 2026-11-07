@@ -8,12 +8,14 @@ import { AccessibilityModal } from './AccessibilityModal';
 
 export interface GameHeaderProps {
   title?: string;
+  subtitle?: string;
   showBack?: boolean;
   backHref?: string;
 }
 
 export const GameHeader: React.FC<GameHeaderProps> = ({
-  title = 'PARTY-VERSE',
+  title = 'PARTYVERSE',
+  subtitle,
   showBack = false,
   backHref = '/',
 }) => {
@@ -43,11 +45,18 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
               </Link>
             )}
 
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-amber-400 shadow-sm shadow-amber-400" />
-              <span className="font-black tracking-widest text-white text-base sm:text-lg uppercase">
-                {title}
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-amber-400 shadow-sm shadow-amber-400" />
+                <span className="font-black tracking-widest text-white text-base sm:text-lg uppercase">
+                  {title}
+                </span>
+              </div>
+              {subtitle && (
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-amber-300 w-fit">
+                  {subtitle}
+                </span>
+              )}
             </div>
           </div>
 

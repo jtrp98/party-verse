@@ -1,3 +1,9 @@
+export type ContentRating = 'NORMAL' | 'NSFW';
+
+export type NormalPack = 'FUN' | 'DEEP_TALK' | 'COMPETITION';
+
+export type AreaType = 'PUBLIC' | 'PRIVATE';
+
 export type GameVibeLevel = 'CHILL' | 'FLIRTY' | 'SPICY' | 'NAUGHTY' | 'UNLEASHED';
 
 export type IntensityLevel = 1 | 2 | 3 | 4 | 5;
@@ -85,6 +91,12 @@ export interface BaseGameSession {
   currentPhase: ProgressionPhase;
   status: 'SETUP' | 'READY' | 'PLAYING' | 'MINI_GAME' | 'PAUSED' | 'FINISHED';
   history: GameEventLog[];
+  rating?: ContentRating;
+  normalPack?: NormalPack;
+  areaType?: AreaType;
+  scores?: Record<string, number>;
+  optInPlayerIds?: string[];
+  requiresResumeConfirmation?: boolean;
 }
 
 export interface DoraemonSession extends BaseGameSession {

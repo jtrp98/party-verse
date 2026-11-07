@@ -1,4 +1,4 @@
-import { PlayingCard, Suit, Rank, SessionBoundaries } from '../types/game';
+import { PlayingCard, Suit, Rank, SessionBoundaries, ContentRating, NormalPack } from '../types/game';
 import { DEFAULT_DORAEMON_RULES, CardRuleDefinition } from '../data/doraemonRules';
 
 const SUITS: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
@@ -13,7 +13,9 @@ export const SUIT_SYMBOLS: Record<Suit, { symbol: string; nameThai: string; colo
 
 export function generate52CardDeck(
   customRules: Record<Rank, CardRuleDefinition> = DEFAULT_DORAEMON_RULES,
-  boundaries?: SessionBoundaries
+  boundaries?: SessionBoundaries,
+  rating?: ContentRating,
+  normalPack?: NormalPack
 ): PlayingCard[] {
   const deck: PlayingCard[] = [];
 
@@ -24,6 +26,39 @@ export function generate52CardDeck(
       let title = rule.title;
       let desc = rule.shortDesc;
       let details = rule.fullDesc;
+      let triggersMiniGame = rule.triggersMiniGame;
+
+      if (rating === 'NSFW') {
+        if (rank === 'A') {
+          title = 'ดื่มคนเดียว / เผยรสนิยม';
+          desc = 'คนจั่วดื่ม 1 ช็อต หรือเผยสเปกคนในวงที่ดึงดูดใจที่สุด';
+        } else if (rank === '2') {
+          title = 'แจกสัมผัสหรือดื่ม';
+          desc = 'สั่งเพื่อนดื่ม 2 ช็อต หรือสั่งสกินชิพน่ารัก ๆ (เฉพาะคนที่ยินยอม)';
+        } else if (rank === '9') {
+          title = 'คนข้างซ้ายชะตาขาด';
+          desc = 'คนทางซ้ายมือดื่ม 1 ช็อต หรือสารภาพความรู้สึกที่มีต่อคนจั่ว';
+        } else if (rank === 'K') {
+          details = 'ใบที่ 1-3 สั่งกฎพิเศษประจำวง / ใบที่ 4 ปลุกมินิเกมผู้ใหญ่ส่งท้าย แล้วเล่นต่อจนไพ่หมด 52 ใบ';
+        }
+      } else if (rating === 'NORMAL') {
+        if (normalPack === 'DEEP_TALK') {
+          if (rank === 'A') {
+            title = 'เปิดใจคนเดียว';
+            desc = 'เล่าเรื่องซึ้ง ๆ หรือความทรงจำที่ประทับใจที่สุดในชีวิต 1 เรื่อง';
+          } else if (rank === '9') {
+            title = 'คนข้างซ้ายชมจากใจ';
+            desc = 'คนทางซ้ายพูดข้อดีที่ประทับใจในตัวคนจั่ว 1 ประโยค';
+          }
+        } else if (normalPack === 'COMPETITION') {
+          if (rank === '4' || rank === '5' || rank === '7' || rank === '10') {
+            desc = `${desc} (ผู้ชนะได้รับ +1 แต้มสะสม)`;
+          }
+        }
+        if (rank === 'K') {
+          details = 'ใบที่ 1-3 สั่งกฎใหม่ 1 ข้อ / ใบที่ 4 ฉลองปิดวง แล้วเล่นต่อจนไพ่หมด 52 ใบ';
+        }
+      }
 
       // Adapt if boundaries disable alcohol
       if (boundaries && !boundaries.allowAlcohol && rule.alternativeAction) {
@@ -37,7 +72,7 @@ export function generate52CardDeck(
           title = 'คนข้างซ้ายทำภารกิจ';
           desc = rule.alternativeAction;
         } else if (rank === 'K') {
-          details = 'ใบที่ 1-3 สั่งกฎใหม่ 1 ข้อ / ใบที่ 4: ' + rule.alternativeAction;
+          details = 'ใบที่ 1-3 สั่งกฎใหม่ 1 ข้อ / ใบที่ 4: ' + rule.alternativeAction + ' (แล้วเล่นต่อจนไพ่หมด 52 ใบ)';
         }
       }
 
@@ -49,7 +84,7 @@ export function generate52CardDeck(
         ruleTitle: title,
         ruleDescription: desc,
         ruleDetails: details,
-        triggersMiniGame: rule.triggersMiniGame,
+        triggersMiniGame,
         alternativeAction: rule.alternativeAction,
         isPhysical: rule.isPhysical ?? false,
         requiresConsent: rule.requiresConsent ?? false,

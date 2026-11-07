@@ -8,6 +8,9 @@ import {
   IntensityLevel,
   SessionBoundaries,
   VIBE_TO_INTENSITY,
+  ContentRating,
+  NormalPack,
+  AreaType,
 } from '../types/game';
 import { MINI_GAMES_DATABASE } from '../data/miniGamesData';
 import { pickPairOfPlayers, pickGroupOfPlayers, formatPromptWithPlayers } from './playerEngine';
@@ -22,6 +25,11 @@ export interface MiniGamePickerParams {
   database?: MiniGame[];
   maxAllowedIntensity?: IntensityLevel;
   boundaries?: SessionBoundaries;
+  rating?: ContentRating;
+  normalPack?: NormalPack;
+  areaType?: AreaType;
+  optInPlayerIds?: string[];
+  isFinale?: boolean;
 }
 
 /**
@@ -40,6 +48,11 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
     database = MINI_GAMES_DATABASE,
     maxAllowedIntensity,
     boundaries,
+    rating,
+    normalPack,
+    areaType,
+    optInPlayerIds,
+    isFinale,
   } = params;
   const playerCount = players.length;
 
@@ -53,6 +66,17 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
     const mgIntensity = VIBE_TO_INTENSITY[mg.level] || 1;
     if (mgIntensity > ceilingNum) return false;
     if (mg.minPlayers > playerCount) return false;
+
+    // Normal rating strictly excludes 18+ adult mini-games
+    if (rating === 'NORMAL') {
+      if (mgIntensity >= 3) return false;
+      if (mg.tags?.includes('18plus') || mg.tags?.includes('adult') || mg.tags?.includes('nsfw')) return false;
+    }
+
+    // Public area rejects private-only mini-games
+    if (areaType === 'PUBLIC' && (mg.tags?.includes('private_space') || (mg.requiresConsent && mgIntensity >= 4))) {
+      return false;
+    }
 
     if (boundaries) {
       if (!boundaries.allowPhysical && (mg.requiresConsent || mg.tags?.includes('physical'))) {
@@ -81,11 +105,15 @@ export function pickNextMiniGame(params: MiniGamePickerParams): ActiveMiniGameIn
   const notRecent = eligible.filter((mg) => !recentMiniGameIds.includes(mg.id));
   const pool = notRecent.length > 0 ? notRecent : eligible;
 
-  // 5. Weighted scoring based on phase and difficulty
+  // 5. Weighted scoring based on phase, difficulty, pack, and finale status
   const scored = pool.map((mg) => {
     let weight = 1;
+    if (isFinale && mg.phase === 'FINALE') weight += 10;
     if (mg.phase === phase) weight += 3;
     if (mg.difficulty === difficulty) weight += 2;
+    if (normalPack === 'COMPETITION' && (mg.category === 'SPEED_REACTION' || mg.category === 'VERSUS_DUEL' || mg.category === 'PARTY_CLASSIC')) {
+      weight += 4;
+    }
     return { game: mg, weight };
   });
 
